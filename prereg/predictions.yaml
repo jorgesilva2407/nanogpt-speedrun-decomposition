@@ -1,0 +1,72 @@
+# Pre-registered predictions — proposal v8, section 4, copied verbatim (text of every cell unchanged; markdown bold
+# removed). Do not edit the predictions. `ref` keys are added only to join rows to experiments/arms.yaml
+# (prediction_ref); they are not part of the registered text.
+source: "docs/proposal v8.md, section 4 'Pre-registered predictions'"
+preamble: >-
+  Committed before running. Reporting misses is part of the result. These are deliberately not our guesses.
+  Wherever a primary source exists, the registered prediction is what that source implies; where none exists, we
+  register our own and mark it as unsupported. This makes the exercise falsifiable in a way a private hunch would
+  not be — and it is what H1 tests.
+predictions:
+  - ref: flexattention_kernel
+    arm: "FlexAttention kernel"
+    external_evidence: "Dong et al. 2412.05496"
+    registered_prediction: "Throughput"
+    basis: "Compiler paper; no modelling change"
+  - ref: context_64k
+    arm: "→ 64K context increase"
+    external_evidence: "none"
+    registered_prediction: "Sample efficiency"
+    basis: "Ours — unsupported"
+  - ref: window_warmup
+    arm: "Attention-window warmup"
+    external_evidence: "none"
+    registered_prediction: "Sample efficiency"
+    basis: "Ours — unsupported"
+  - ref: value_embeddings
+    arm: "Value embeddings"
+    external_evidence: "Zhou et al. 2410.17897"
+    registered_prediction: "Sample efficiency, ~20% fewer tokens"
+    basis: "Paper's headline, transferred naively"
+  - ref: unet_ve
+    arm: "U-net VE (+ code opts)"
+    external_evidence: "none"
+    registered_prediction: "Mixed"
+    basis: "Ours — unsupported"
+  - ref: split_ve_block_window
+    arm: "Split VE / block sliding window"
+    external_evidence: "none"
+    registered_prediction: "Throughput-dominant"
+    basis: "Ours — unsupported"
+  - ref: sparsified_ve_rotary
+    arm: "Sparsified VE + rotary"
+    external_evidence: "RoFormer (base rotary only)"
+    registered_prediction: "Sample efficiency"
+    basis: "Ours for the tweak — unsupported"
+  - ref: dropped_attention_layer
+    arm: "Dropped attention layer"
+    external_evidence: "none"
+    registered_prediction: "Throughput, with a sample-efficiency cost"
+    basis: "Ours — unsupported"
+  - ref: softcap
+    arm: "Logit softcap 30 → 15"
+    external_evidence: "Gemma 2 (stability framing)"
+    registered_prediction: "No sample-efficiency effect"   # NOTE: copied as written; the group has NOT signed off on
+                                                           # this row (it contradicts the leaderboard's framing of #18)
+    basis: "The source claims stability, not efficiency"
+  - ref: muon_adamw
+    arm: "Muon → AdamW"
+    external_evidence: "README: ~1.5× sample efficiency, <2% overhead"
+    registered_prediction: "Sample efficiency, large"
+    basis: "Positive control — a miss here indicts the instrument"
+hypotheses:
+  H1: >-
+    the literature's predictions fail for at least two arms once the mechanism sits inside a co-tuned stack.
+  H1_note: >-
+    Note that the softcap row now registers a prediction opposite to the one v2 held, because Gemma 2 argues
+    stability rather than efficiency — an instance of this reframing changing what we expect, not merely how we
+    describe it.
+  H2_section1: >-
+    Leave-one-out and add-one-in disagree by more than seed variance for at least one arm, i.e. the gains are not
+    additive.
+closing: "Five of ten rows are marked unsupported. Those are the rows no amount of reading settles."
