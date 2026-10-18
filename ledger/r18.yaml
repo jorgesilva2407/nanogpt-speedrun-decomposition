@@ -1,0 +1,565 @@
+record: 18
+title: Lower logit softcap from 30 to 15
+snapshot_from: r17
+snapshot_to: r18
+diff: diffs/r18-vs-r17.diff
+attribution_note: 'Commit 45544f5 changes only the softcap (H026) and num_iterations (part of H030). Everything else in this diff comes from master
+  commits between the #16 code and #18 (2024-12-13..2025-01-01, EXPLORATION.md section 7), i.e. Keller''s re-implementation of #17 that #18 was
+  built on; #17''s own log was produced by different (off-repo) code. Per-hunk commit attributions found with git log -S are inferred.'
+hunks:
+- id: H001
+  file: train_gpt.py
+  header: '@@ -2,21 +2,19 @@'
+  description: imports reorganised; expandable_segments allocator setting removed; torch._inductor.config no longer imported; dummy backward right
+    after importing torch
+  category:
+  - throughput-only
+  - cosmetic
+  flag:
+  - code_opts_17
+  - code_opts_18
+  provenance: inferred
+  bundled: true
+  numerics: identical
+  parts:
+  - what: 'PYTORCH_CUDA_ALLOC_CONF removed (#17 allocator setting reverted: code_opts_17 off in preset r18)'
+    flag: code_opts_17
+    category: throughput-only
+  - what: torch.empty(1, device='cuda', requires_grad=True).backward() at import (0227d691, 2024-12-31)
+    flag: code_opts_18
+    category: throughput-only
+  - what: import order; Tensor import dropped
+    flag: none
+    category: cosmetic
+- id: H002
+  file: train_gpt.py
+  header: '@@ -26,3 +24,3 @@'
+  description: zeropower signature (steps only; eps becomes the literal 1e-7)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same default eps 1e-7
+- id: H003
+  file: train_gpt.py
+  header: '@@ -39,5 +37,8 @@'
+  description: 'Newton-Schulz: transpose first, then normalise by the Frobenius norm (was normalise, then transpose)'
+  category: throughput-only
+  flag: code_opts_18
+  provenance: inferred
+  bundled: false
+  numerics: ulp-level
+  note: 'same norm value in exact arithmetic (transpose-invariant); the reduction now runs over a transposed view, so summation order may differ.
+    Introduced on master 6584bfbd (2024-12-14), not in #17''s off-repo code.'
+- id: H004
+  file: train_gpt.py
+  header: '@@ -46,2 +47,3 @@'
+  description: whitespace line
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H005
+  file: train_gpt.py
+  header: '@@ -75,16 +77,10 @@'
+  description: Muon stores world_size/rank on self; param groups built with dict(); annotations
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same groups and buffers
+- id: H006
+  file: train_gpt.py
+  header: '@@ -92,3 +88,5 @@'
+  description: blank lines
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H007
+  file: train_gpt.py
+  header: '@@ -97,5 +95,5 @@'
+  description: annotations removed
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H008
+  file: train_gpt.py
+  header: '@@ -108,10 +106,9 @@'
+  description: per-parameter lr multiplier removed; self.world_size/self.rank in the round loop (uneven last round kept)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: no parameter carries an 'lr' attribute, so param_lr was always 1.0; same values
+- id: H009
+  file: train_gpt.py
+  header: '@@ -121,3 +118,3 @@'
+  description: annotation removed
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H010
+  file: train_gpt.py
+  header: '@@ -127,5 +124,5 @@'
+  description: comment; self.world_size
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: comment/rename
+- id: H011
+  file: train_gpt.py
+  header: '@@ -139,2 +136,3 @@'
+  description: blank line
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H012
+  file: train_gpt.py
+  header: '@@ -146,8 +144,10 @@'
+  description: 'Rotary: inv_freq renamed angular_freq; linspace(0, 1) written with int endpoints (dtype float32); einsum spec spacing'
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: identical values (endpoints converted to the requested dtype)
+- id: H013
+  file: train_gpt.py
+  header: '@@ -155,5 +155,5 @@'
+  description: x.float() instead of x.to(dtype=torch.float32); annotation
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same cast
+- id: H014
+  file: train_gpt.py
+  header: '@@ -164,3 +164,3 @@'
+  description: annotations removed
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H015
+  file: train_gpt.py
+  header: '@@ -176,5 +176,5 @@'
+  description: vi renamed ve; assert quotes
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: rename
+- id: H016
+  file: train_gpt.py
+  header: '@@ -182,6 +182,6 @@'
+  description: value-mixing branches swapped (if ve is not None ... else l0*v)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same two branches
+- id: H017
+  file: train_gpt.py
+  header: '@@ -197,3 +197,3 @@'
+  description: whitespace in MLP
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H018
+  file: train_gpt.py
+  header: '@@ -209,14 +209,12 @@'
+  description: 'Block(model_dim, num_heads, use_attn): attention is None when not used (was absent)'
+  category: cosmetic
+  flag: drop_attn_layer
+  provenance: direct
+  bundled: false
+  numerics: identical
+  note: same structure and parameters; use_attn=(i != 7) in GPT (H021)
+- id: H019
+  file: train_gpt.py
+  header: '@@ -225,20 +223,11 @@'
+  description: 'ValueEmbedding(vocab_size, model_dim): one-line ModuleList; outputs cast with .bfloat16(); same 012...012 list'
+  category:
+  - cosmetic
+  - model-mechanism
+  flag:
+  - fp32_small_params
+  - config:embed_vocab_size
+  provenance: inferred
+  bundled: true
+  numerics: identical
+  note: the .bfloat16() casts are no-ops while the embeddings are bf16 (fp32_small_params keeps them bf16); tables now take vocab_size 50304 (H020)
+- id: H020
+  file: train_gpt.py
+  header: '@@ -247,23 +236,18 @@'
+  description: GPTConfig removed; GPT(vocab_size, num_layers, num_heads, model_dim); embedding and value-embedding tables back to 50,304 rows
+  category:
+  - capacity-change
+  - cosmetic
+  flag: config:embed_vocab_size
+  provenance: inferred
+  bundled: false
+  numerics: changed
+  note: 'undoes #17''s 50,257 rows (0227d691, 2024-12-31): nominal for the function (rows >= 50257 never indexed), +144,384 parameters, different
+    init RNG stream'
+- id: H021
+  file: train_gpt.py
+  header: '@@ -271,17 +255,7 @@'
+  description: modules built directly from arguments (use_attn=(i != 7)); lm_head 50,304; skip_weights created after lm_head; block count from
+    the sequence length
+  category:
+  - cosmetic
+  - capacity-change
+  flag:
+  - drop_attn_layer
+  - config:embed_vocab_size
+  provenance: direct
+  bundled: true
+  numerics: identical
+  note: 'skip_weights is ones-initialised (no RNG): moving it changes registration order only'
+- id: H022
+  file: train_gpt.py
+  header: '@@ -295,4 +269,4 @@'
+  description: whitespace; annotation
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace/annotation
+- id: H023
+  file: train_gpt.py
+  header: '@@ -301,4 +275,4 @@'
+  description: torch.arange(total_num_blocks) instead of arange(512)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: total_num_blocks = 65536 // 128 = 512 (micro-batch fixed)
+- id: H024
+  file: train_gpt.py
+  header: '@@ -307,3 +281,3 @@'
+  description: comment
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: comment
+- id: H025
+  file: train_gpt.py
+  header: '@@ -326,7 +300,6 @@'
+  description: x0 = norm(embed(inputs[None]).bfloat16()); assert len(ve) == len(blocks)
+  category:
+  - cosmetic
+  flag: fp32_small_params
+  provenance: direct
+  bundled: false
+  numerics: identical
+  note: the cast is a no-op with bf16 embeddings
+- id: H026
+  file: train_gpt.py
+  header: '@@ -347,5 +320,5 @@'
+  description: 'logit softcap 30 -> 15 (THE record #18 change, commit 45544f5); targets passed without .view(-1)'
+  category:
+  - hyperparameter/schedule
+  - cosmetic
+  flag: config:logit_softcap
+  provenance: direct
+  bundled: false
+  numerics: changed
+  coupled:
+  - 'num_iterations: coupled to the softcap by the record (README: the softer cap lets the step count drop from 1490 to 1390; same commit, H030)'
+  note: 'A hyperparameter of the softcap mechanism present since #9, so arm 7 is a config change (logit_softcap), not a flag.'
+- id: H027
+  file: train_gpt.py
+  header: '@@ -355,16 +328,14 @@'
+  description: shard header and tokens read by one function (torch.from_file + pinned readinto, unbuffered)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same tokens; the flagged loader already reads pinned/unbuffered under code_opts_15/16
+- id: H028
+  file: train_gpt.py
+  header: '@@ -372,16 +343,7 @@'
+  description: loader takes rank/world_size from the environment; no shard-size validation
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: construction only; reads are decided by H029
+- id: H029
+  file: train_gpt.py
+  header: '@@ -392,18 +354,19 @@'
+  description: 'next_batch(global batch): one shard-switch test `cp + batch + 1 >= len` before the read for all ranks; each rank reads its contiguous
+    device slice'
+  category:
+  - infra/logging
+  - throughput-only
+  flag:
+  - config:loader_shard_rule
+  - code_opts_18
+  provenance: inferred
+  bundled: true
+  numerics: changed
+  parts:
+  - what: 'global, read-before shard rule (74b982a6, 2024-12-31): every rank switches at the same step. With 100M-token shards the #17 and #18
+      streams differ from step 189 and on 1,201 of the 1,390 steps (explore_tools/shard_sim.py)'
+    flag: config:loader_shard_rule
+    category: infra/logging
+    numerics: changed
+  - what: whole device batch fetched at the start of the step and split into 65,536-token micro-batches (same tokens per micro-batch as virtual-rank
+      reads)
+    flag: code_opts_18
+    category: throughput-only
+    numerics: identical
+  note: 'data order, not mechanism: the README row does not mention it'
+- id: H030
+  file: train_gpt.py
+  header: '@@ -415,17 +378,19 @@'
+  description: 'hyperparameters rewritten: batch sizes in tokens; num_iterations 1490 -> 1390; cooldown_iters 600 -> cooldown_frac 0.4; bf16_embeds
+    = True; save_checkpoint; warmup_iters/weight_decay/save_every removed'
+  category:
+  - hyperparameter/schedule
+  - model-mechanism
+  - cosmetic
+  flag:
+  - config:num_iterations
+  - config:lr_schedule_form
+  - config:cooldown_frac
+  - fp32_small_params
+  provenance: inferred
+  bundled: true
+  numerics: changed
+  parts:
+  - what: num_iterations 1490 -> 1390 (45544f5, with the softcap)
+    flag: config:num_iterations
+    category: hyperparameter/schedule
+  - what: 'cooldown expressed as a fraction (74d5a955): at N = 1390, 0.4 -> 556 iterations (record #17: 600 at N = 1490 = 0.403). Schedule now
+      scales with num_iterations (needed by RQ3b)'
+    flag: config:lr_schedule_form
+    category: hyperparameter/schedule
+  - what: 'bf16_embeds (0227d691): see H032'
+    flag: fp32_small_params
+    category: model-mechanism
+  - what: tokens instead of sequences; unused fields dropped
+    flag: none
+    category: cosmetic
+  coupled:
+  - 'cooldown_frac: replaces the absolute warmdown_iters; fraction of num_iterations'
+- id: H031
+  file: train_gpt.py
+  header: '@@ -436,6 +401,4 @@'
+  description: device/process-group initialisation via local_rank
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: process setup
+- id: H032
+  file: train_gpt.py
+  header: '@@ -447,83 +410,73 @@'
+  description: logging restructure; model kept in fp32 with only embeddings cast to bf16 (was model.bfloat16() with linears back to fp32); coordinate_descent_tuning
+    removed; one Adam with three param groups; scalar params collected from all parameters; frac LR schedule; window schedule as a function int(((1
+    - x) * 128 + x * 1856) // 128)
+  category:
+  - model-mechanism
+  - throughput-only
+  - hyperparameter/schedule
+  - infra/logging
+  flag:
+  - fp32_small_params
+  - code_opts_18
+  - config:lr_schedule_form
+  - config:window_block_formula
+  provenance: inferred
+  bundled: true
+  numerics: changed
+  parts:
+  - what: 'precision (0227d691): block lambdas, attention lambdas, skip weights and the rotary cos/sin buffers stay fp32 (were bf16 under the
+      global cast); embeddings bf16 as before; activations stay bf16 (0-dim fp32 scalars do not promote bf16 tensors); Adam now updates those
+      scalars in fp32'
+    flag: fp32_small_params
+    category: model-mechanism
+    numerics: changed
+  - what: 'coordinate_descent_tuning no longer set (kernel autotuning: speed, possibly different reduction orders)'
+    flag: code_opts_18
+    category: throughput-only
+    numerics: ulp-level
+  - what: one fused Adam with three param groups (f5047095) instead of three Adams; element-wise identical updates
+    flag: code_opts_18
+    category: throughput-only
+    numerics: identical
+  - what: scalar_params = all parameters with ndim < 2 (same set and order as blocks scalars + skip_weights)
+    flag: none
+    category: cosmetic
+  - what: get_lr with cooldown_frac
+    flag: config:lr_schedule_form
+    category: hyperparameter/schedule
+  - what: 'window formula r18 (44809cb8): equal block counts to the r16 formula at N = 1390, 1480, 1490 for every step, but not at every N (e.g.
+      N = 1530 step 1020; tools/window_schedule_check.py)'
+    flag: config:window_block_formula
+    category: hyperparameter/schedule
+    numerics: identical
+  - what: log written via print0 from the start; dataloader file lists logged
+    flag: none
+    category: infra/logging
+- id: H033
+  file: train_gpt.py
+  header: '@@ -534,4 +487,5 @@'
+  description: train_steps alias
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: rename
+- id: H034
+  file: train_gpt.py
+  header: '@@ -544,11 +498,6 @@'
+  description: window tensor set from get_sliding_window_blocks(step) every step (blocking copy, no change check)
+  category: throughput-only
+  flag:
+  - code_opts_18
+  - config:window_block_formula
+  provenance: inferred
+  bundled: false
+  numerics: identical
+- id: H035
+  file: train_gpt.py
+  header: '@@ -560,10 +509,14 @@'
+  description: 'validation: val batch = world_size * micro tokens per step via next_batch(val_batch); forward through ddp_model'
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: 'same 160 validation micro-batches and the same mean (val reads never reach a shard boundary: 10.5M of 100M tokens)'
+- id: H036
+  file: train_gpt.py
+  header: '@@ -572,38 +525,21 @@'
+  description: 'checkpoint behind save_checkpoint; training: whole device batch fetched, split into micro-batches, each micro-batch backward all-reduces
+    (no no_sync), no set_stance, no division of gradients; momentum warmup on the Muon optimizer'
+  category:
+  - throughput-only
+  - infra/logging
+  flag:
+  - code_opts_18
+  provenance: inferred
+  bundled: true
+  numerics: identical
+  parts:
+  - what: fetch at step start; no no_sync; no set_stance
+    flag: code_opts_18
+    category: throughput-only
+  - what: 'gradients summed over micro-batches without dividing: identical at accum 1 (8 GPUs). The flagged trainer averages at accum > 1 (unified
+      batch convention, CHANGES/infra.md), i.e. reproduces the 8-GPU computation rather than #18 on fewer GPUs'
+    flag: none
+    category: infra/logging
+  - what: checkpoint optional (off)
+    flag: none
+    category: infra/logging
+- id: H037
+  file: train_gpt.py
+  header: '@@ -612,17 +548,11 @@'
+  description: scheduler not stepped after the last optimizer step; logging
+  category:
+  - hyperparameter/schedule
+  - infra/logging
+  flag: config:lr_schedule_form
+  provenance: direct
+  bundled: true
+  numerics: identical
+  note: the skipped sched.step would only set the LR for a step that never runs; needed because the frac get_lr asserts t > 0
+- id: H038
+  file: Dockerfile
+  header: '@@ -27,7 +27,7 @@'
+  description: Dockerfile pins torch==2.6.0.dev20241231+cu126
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: this is the pin the flagged repo keeps (launch/Dockerfile)
+- id: H039
+  file: README.md
+  header: '@@ -3,7 +3,7 @@'
+  description: README headline time
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation
+- id: H040
+  file: README.md
+  header: '@@ -32,12 +32,12 @@'
+  description: README install pin and step count
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation
+- id: H041
+  file: README.md
+  header: '@@ -55,7 +55,7 @@'
+  description: README docker data download count
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation
+- id: H042
+  file: README.md
+  header: '@@ -66,22 +66,24 @@'
+  description: 'README table re-pathed; rows #17 and #18'
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: 'documentation (README provenance: EXPLORATION.md section 2)'
+- id: H043
+  file: run.sh
+  header: '@@ -1 +1 @@'
+  description: run.sh launches train_gpt.py (file renamed 2024-12-31)
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: launcher; the flagged repo has its own launcher

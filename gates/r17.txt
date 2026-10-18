@@ -3,6 +3,7 @@ syntax: PASS
 constants:
 adam_betas                  snapshot=[0.8, 0.95]                            preset=[0.8, 0.95]                            match
 attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+cooldown_frac               snapshot=-                                      preset=0.4                                    NOT EXTRACTABLE (absent in snapshot)
 dropped_attn_layer          snapshot=7                                      preset=7                                      match
 embed_vocab_size            snapshot=50257                                  preset=50257                                  match
 global_batch_tokens         snapshot=524288                                 preset=524288                                 match
@@ -15,6 +16,7 @@ lr_embed                    snapshot=0.6                                    pres
 lr_head                     snapshot=0.008                                  preset=0.008                                  match
 lr_muon                     snapshot=0.05                                   preset=0.05                                   match
 lr_scalar                   snapshot=0.04                                   preset=0.04                                   match
+lr_schedule_form            snapshot=iters                                  preset=iters                                  match
 micro_batch_tokens          snapshot=65536                                  preset=65536                                  match
 muon_momentum               snapshot=0.95                                   preset=0.95                                   match
 muon_momentum_warmup_end    snapshot=0.95                                   preset=0.95                                   match
@@ -33,6 +35,7 @@ vocab_size                  snapshot=50304                                  pres
 warmdown_iters              snapshot=600                                    preset=600                                    match
 warmup_iters                snapshot=0                                      preset=0                                      match
 weight_decay                snapshot=0                                      preset=0                                      match
+window_block_formula        snapshot=r16                                    preset=r16                                    match
 window_warmup_end           snapshot=1792                                   preset=1792                                   match
 window_warmup_quantum       snapshot=64                                     preset=64                                     match
 window_warmup_start         snapshot=64                                     preset=64                                     match
@@ -42,9 +45,11 @@ flag:blockmask_separate     snapshot=True                                   pres
 flag:code_opts_15           snapshot=True                                   preset=True                                   match
 flag:code_opts_16           snapshot=True                                   preset=True                                   match
 flag:code_opts_17           snapshot=True                                   preset=True                                   match
+flag:code_opts_18           snapshot=False                                  preset=False                                  match
 flag:doc_masking            snapshot=True                                   preset=True                                   match
 flag:drop_attn_layer        snapshot=True                                   preset=True                                   match
 flag:flex_kernel            snapshot=True                                   preset=True                                   match
+flag:fp32_small_params      snapshot=False                                  preset=False                                  match
 flag:long_context           snapshot=True                                   preset=True                                   match
 flag:muon_ema_momentum      snapshot=True                                   preset=True                                   match
 flag:rope_half_truncate     snapshot=True                                   preset=True                                   match

@@ -67,7 +67,8 @@ class Snapshot:
                 for st in n.body:
                     if isinstance(st, ast.AnnAssign) and st.value is not None:
                         out[st.target.id] = lit(st.value)
-        call = self.calls.get('model')
+        call = next((n.value for n in self.tree.body if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+                     and ast.unparse(n.value.func) == 'GPT'), None)
         if call is not None:
             inner = call.args[0] if call.args and isinstance(call.args[0], ast.Call) else call
             for k in inner.keywords:
@@ -103,6 +104,7 @@ def extract(s: Snapshot):
     out['warmup_iters'] = hp.get('warmup_iters')
     out['warmdown_iters'] = hp.get('warmdown_iters', hp.get('cooldown_iters'))
     out['cooldown_frac'] = hp.get('cooldown_frac')
+    out['lr_schedule_form'] = 'frac' if 'cooldown_frac' in hp else 'iters'
     out['weight_decay'] = hp.get('weight_decay')
     out['val_loss_every'] = hp.get('val_loss_every')
     out['val_tokens'] = hp.get('val_tokens')
@@ -168,6 +170,13 @@ def extract(s: Snapshot):
     if m:   # records #16-#17: blocks = int(((1 - f) * start + f * end + q) // 128)
         s0, end, q1 = map(int, m.groups())
         out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
+    out['window_block_formula'] = None
+    if re.search(r'int\(\(\(1 - frac_done\) \* \d+ \+ frac_done \* \d+ \+ \d+\) // 128\)', src):
+        out['window_block_formula'] = 'r16'
+    m = re.search(r'int\(\(\(1 - x\) \* (\d+) \+ x \* (\d+)\) // 128\)', src)
+    if m:   # record #18: blocks = int(((1 - x) * (start + q) + x * (end + q)) // 128); q not separable -> derived check
+        out['window_block_formula'] = 'r18'
+        out['_window_r18_endpoints'] = (int(m.group(1)), int(m.group(2)))
     return out
 
 def detect_flags(s: Snapshot):
@@ -202,6 +211,8 @@ def detect_flags(s: Snapshot):
     f['rope_half_truncate'] = '(1 / 1024) ** torch.linspace' in src
     f['drop_attn_layer'] = re.search(r'(?:if layer_idx != |use_attn=\(i != )\d+', src) is not None
     f['code_opts_17'] = 'expandable_segments:True' in src
+    f['fp32_small_params'] = 'bf16_embeds' in src
+    f['code_opts_18'] = "torch.empty(1, device='cuda', requires_grad=True).backward()" in src
     if 'nn.Buffer(theta.cos()' in src:
         f['rotary_variant'] = 'v17'
     return f
@@ -227,6 +238,14 @@ def main():
             ok = list(v) == list(hp[k])
         rows.append((k, v, hp[k], 'match' if ok else 'MISMATCH'))
         bad += not ok
+    if '_window_r18_endpoints' in vals:
+        want = vals.pop('_window_r18_endpoints')
+        got = (hp['window_warmup_start'] + hp['window_warmup_quantum'], hp['window_warmup_end'] + hp['window_warmup_quantum'])
+        ok = tuple(want) == got
+        rows.append(('derived:start+q, end+q', want, got, 'match' if ok else 'MISMATCH'))
+        bad += not ok
+        for k in ('window_warmup_start', 'window_warmup_end', 'window_warmup_quantum'):
+            rows[:] = [r if r[0] != k else (k, '-', hp[k], 'checked only as start+q / end+q (record #18 form)') for r in rows]
     for k in sorted(set(vals) - set(hp)):
         if vals[k] is not None:
             rows.append((k, vals[k], '-', 'in snapshot, not a config key of this preset'))

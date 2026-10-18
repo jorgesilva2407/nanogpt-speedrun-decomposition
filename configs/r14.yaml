@@ -22,6 +22,8 @@ flags:
   rope_half_truncate: false
   drop_attn_layer: false
   code_opts_17: false
+  fp32_small_params: false
+  code_opts_18: false
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin
@@ -32,6 +34,8 @@ hparams:
   loader_replay_first_round: false  # record: no train_loader.reset() before the loop
   num_iterations: 1530
   warmup_iters: 0
+  lr_schedule_form: iters       # warmup_iters / warmdown_iters (records #11-#17)
+  cooldown_frac: 0.4            # unused (lr_schedule_form iters); record #18 value
   warmdown_iters: 600           # record calls it cooldown_iters
   weight_decay: 0
   val_loss_every: 125
@@ -58,3 +62,4 @@ hparams:
   window_warmup_quantum: 64
   dropped_attn_layer: 7        # unused (drop_attn_layer off); record #17 value
   ve_sparse_tables: 3          # unused (ve_sparsify off); record #17 value
+  window_block_formula: r16    # unused (block_window off)
