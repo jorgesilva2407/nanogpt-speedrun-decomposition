@@ -71,8 +71,11 @@ record #11. **This is an argument from code reading; it has not been executed** 
   prefetch/reset quirk becomes per-micro-step (see `work/EXPLORATION.md` §8: with 100M-token shards the literal
   1-GPU and 8-GPU streams diverge at step 189). Verified by executing only the loader classes on synthetic
   shards: `python -I tools/loader_equivalence.py <r11 snapshot> train_flagged.py configs/r11.yaml --protocol r11`
-  → identical micro-batch offsets at world_size 1, 2, 4, 8 for 600 steps spanning 50+ shard switches (negative
-  control: disabling the replay makes every world size differ from step 1).
+  → identical micro-batch offsets at world_size 1, 2, 4, 8 for 600 steps on 8 synthetic shards of ~6,100
+  tokens (scaled-down geometry, same 8-micro-batch ratio): 73 steps at which some virtual rank switches shard,
+  268 steps whose 8 micro-batches come from two different shards (under the record's per-rank rule, ranks switch
+  at different steps and drift apart). Negative control: disabling the replay makes every world size differ
+  from step 1.
 * **Gradient.** DDP averages over `W` ranks the locally accumulated sum of `accum` micro-step gradients; the
   division by `accum` then gives `(1/(W·accum)) Σ_{r,a} ∇L_{r,a} = (1/8) Σ_v ∇L_v`, the same quantity the
   8-GPU run computes as `(1/8) Σ_r ∇L_r`. Equal in exact arithmetic; floating-point summation order differs
