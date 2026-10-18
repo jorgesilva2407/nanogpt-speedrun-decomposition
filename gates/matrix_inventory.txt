@@ -1,0 +1,26 @@
+aoi_A1a                    162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+aoi_A1b                    162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+aoi_A2                     162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+aoi_A3                     625,803,306  tensors=100 buffers= 0  VE= 463.6M blocks= 84.9M
+aoi_A4                     394,002,486  tensors=100 buffers= 0  VE= 231.8M blocks= 84.9M
+aoi_A4b                    162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+aoi_A5                     394,002,474  tensors=105 buffers= 0  VE= 231.8M blocks= 84.9M
+aoi_A5b                    162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+aoi_A6                     278,102,058  tensors=102 buffers= 0  VE= 115.9M blocks= 84.9M
+aoi_A6b                    159,842,345  tensors= 94 buffers= 0  VE=   0.0M blocks= 82.6M
+aoi_A7                     162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+ctrl_A8_r11                162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+ctrl_A8_r18                275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+fp_r11                     162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+fp_r18                     275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+loo_A2                     275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+loo_A4b                    275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+loo_A5b                    275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+loo_A6                     391,643,188  tensors=100 buffers=22  VE= 231.8M blocks= 82.6M
+loo_A6b                    278,102,070  tensors=102 buffers=24  VE= 115.9M blocks= 84.9M
+loo_A7                     275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+sweep_A8_lr0.0009_r11      162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+sweep_A8_lr0.0009_r18      275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+sweep_A8_lr0.0036_r11      162,201,642  tensors= 99 buffers= 0  VE=   0.0M blocks= 84.9M
+sweep_A8_lr0.0036_r18      275,742,772  tensors= 97 buffers=22  VE= 115.9M blocks= 82.6M
+0 failures
