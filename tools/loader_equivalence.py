@@ -58,9 +58,10 @@ def load_loader_class(path, shards):
     files = sorted(shards)
     ns = dict(torch=torch, np=np,
               glob=types.SimpleNamespace(glob=lambda pattern: list(files)),
-              Path=None,
+              Path=types.SimpleNamespace(cwd=lambda: types.SimpleNamespace(glob=lambda pattern: list(files))),
               _peek_data_shard=lambda f, *a: len(shards[os.path.basename(str(f))]),
-              _load_data_shard=lambda f, *a: shards[os.path.basename(str(f))])
+              _load_data_shard=lambda f, *a: shards[os.path.basename(str(f))],
+              _load_data_shard_torch=lambda f, *a: shards[os.path.basename(str(f))])
     exec(compile(mod, path, 'exec'), ns)
     return ns['DistributedDataLoader']
 
@@ -84,6 +85,8 @@ def flagged_stream(flagged_cls, hp, flags, B, T, W, steps):
     kw = {}
     if flags.get('long_context'):
         B, T, kw = 1, B * T, dict(rows_2d=False)
+    if flags.get('code_opts_15'):
+        kw['torch_io'] = True
     loaders = [flagged_cls('pattern', B, T, vr, range(r * A, (r + 1) * A), hp['loader_shard_rule'],
                            hp['loader_replay_first_round'], **kw) for r in range(W)]
     cur = [ld.next_batch() for ld in loaders]
@@ -105,6 +108,7 @@ PROTOCOLS = {
     'r13': dict(ctor=lambda B, T, r, W: (1, B * T, r, W)),
     # records #14-#17: DistributedDataLoader(pattern, T=64K, rank, W)
     'r14': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
+    'r15': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
 }
 
 def main():

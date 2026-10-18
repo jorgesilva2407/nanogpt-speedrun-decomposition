@@ -33,11 +33,16 @@ weight_decay                snapshot=0                                      pres
 window_warmup_end           snapshot=1792                                   preset=1792                                   match
 window_warmup_quantum       snapshot=64                                     preset=64                                     match
 window_warmup_start         snapshot=64                                     preset=64                                     match
+flag:blockmask_manual       snapshot=False                                  preset=False                                  match
+flag:code_opts_15           snapshot=False                                  preset=False                                  match
 flag:doc_masking            snapshot=True                                   preset=True                                   match
 flag:flex_kernel            snapshot=True                                   preset=True                                   match
 flag:long_context           snapshot=True                                   preset=True                                   match
+flag:muon_ema_momentum      snapshot=False                                  preset=False                                  match
 flag:rotary_variant         snapshot=v12                                    preset=v12                                    match
 flag:value_embeds           snapshot=False                                  preset=False                                  match
+flag:ve_lambdas2            snapshot=False                                  preset=False                                  match
+flag:ve_unet                snapshot=False                                  preset=False                                  match
 flag:window_warmup          snapshot=True                                   preset=True                                   match
 configs/r13.yaml: 0 mismatches
 ledger:

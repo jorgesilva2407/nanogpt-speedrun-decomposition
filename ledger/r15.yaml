@@ -1,0 +1,393 @@
+record: 15
+title: "U-net pattern value embeddings, assorted code optimizations"
+snapshot_from: r14
+snapshot_to: r15
+diff: diffs/r15-vs-r14.diff
+attribution_note: >-
+  The record bundles two submissions (README contributors @leloykun, @YouJiacheng). Attribution of hunks to the
+  'U-net value embeddings' sub-arm vs the 'assorted code optimizations' sub-arm uses external evidence: PR #45
+  (leloykun, 'add 12/7/24 record', not merged) contains the U-net VE pattern and the two-lambda mixing; PR #43
+  (YouJiacheng, merged 2024-12-09) contains the loader '+1' and perf_counter; YouJiacheng's gist 1fed9527 holds
+  the final code. Such attributions are marked provenance: inferred.
+hunks:
+  - id: H001
+    file: train_gpt2.py
+    header: "@@ -5,8 +5,6 @@"
+    description: "imports: glob, contextlib, numpy dropped; pathlib.Path added"
+    category: cosmetic
+    flag: none
+    flag_reason: "imports follow the loader rewrite (H016-H020); the flagged trainer keeps numpy/glob for its r11 loader path"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H002
+    file: train_gpt2.py
+    header: "@@ -18,5 +16,3 @@"
+    description: "FlexAttention imported uncompiled (no torch.compile wrappers); BlockMask imported"
+    category: throughput-only
+    flag: [code_opts_15, blockmask_manual]
+    provenance: inferred
+    bundled: true
+    numerics: ulp-level
+    parts:
+      - {what: "flex_attention called directly inside the compiled model instead of through a separately compiled wrapper", flag: code_opts_15, category: throughput-only}
+      - {what: "BlockMask needed by the directly built block mask (H012); create_block_mask no longer used", flag: blockmask_manual, category: throughput-only}
+  - id: H003
+    file: train_gpt2.py
+    header: "@@ -83,42 +79,59 @@"
+    description: "Muon rewritten: parameters grouped by size with per-group bf16 update buffers; each rank orthogonalises one parameter per round, async all_gather overlapped with the next round; update scale applied as add_ alpha; momentum as EMA via lerp_; type annotations"
+    category: [throughput-only, model-mechanism, cosmetic]
+    flag: [code_opts_15, muon_ema_momentum]
+    provenance: inferred
+    bundled: true
+    numerics: changed
+    parts:
+      - {what: "distribution (all_reduce of a flat buffer -> grouped async all_gather) and scale as alpha (-lr*s with s in {1, 2}; multiplying by a power of two commutes with rounding, so updates are bit-identical)", flag: code_opts_15, category: throughput-only, numerics: identical}
+      - {what: "buf.lerp_(g, 1-m); g = g.lerp_(buf, m)  vs  buf = m*buf + g; g = g + m*buf. With constant m the two directions are proportional (factor 1-m) and Newton-Schulz normalises scale; during momentum warmup (m varies 0.85 -> 0.95 over the first 300 steps) they are not proportional", flag: muon_ema_momentum, category: model-mechanism, numerics: changed}
+      - {what: "type annotations, local variable names", flag: none, category: cosmetic}
+  - id: H004
+    file: train_gpt2.py
+    header: "@@ -172,3 +185,3 @@"
+    description: "value-mixing parameter lamb (scalar, 0.5) -> lambdas (two scalars, 0.5 and 0.5)"
+    category: model-mechanism
+    flag: ve_lambdas2
+    provenance: inferred
+    bundled: false
+    numerics: changed
+    note: "present in PR #45 (U-net VE submission). Same initial function (0.5*v + 0.5*vi); one extra free parameter per layer. Implemented as its own flag because it is mechanically independent of the U-net pattern."
+  - id: H005
+    file: train_gpt2.py
+    header: "@@ -179,9 +192,9 @@"
+    description: "v = lambdas[0]*v + lambdas[1]*vi; type annotations"
+    category: [model-mechanism, cosmetic]
+    flag: ve_lambdas2
+    provenance: inferred
+    bundled: true
+    numerics: changed
+  - id: H006
+    file: train_gpt2.py
+    header: "@@ -195,3 +208,3 @@"
+    description: type annotation (MLP.__init__)
+    category: cosmetic
+    flag: none
+    flag_reason: annotation
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H007
+    file: train_gpt2.py
+    header: "@@ -201,3 +214,3 @@"
+    description: type annotation (MLP.forward)
+    category: cosmetic
+    flag: none
+    flag_reason: annotation
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H008
+    file: train_gpt2.py
+    header: "@@ -215,3 +228,3 @@"
+    description: type annotation (Block.forward)
+    category: cosmetic
+    flag: none
+    flag_reason: annotation
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H009
+    file: train_gpt2.py
+    header: "@@ -230,2 +243,3 @@"
+    description: "GPTConfig.lm_head_softcap = 30"
+    category: cosmetic
+    flag: "config:logit_softcap"
+    provenance: direct
+    bundled: false
+    numerics: identical
+    note: "the softcap becomes a config field (value unchanged); the flagged trainer already has logit_softcap"
+  - id: H010
+    file: train_gpt2.py
+    header: "@@ -233,4 +247,6 @@"
+    description: "GPT stores n_layer and lm_head_softcap; type annotation"
+    category: cosmetic
+    flag: none
+    flag_reason: attributes only
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H011
+    file: train_gpt2.py
+    header: "@@ -245,3 +261,4 @@"
+    description: "vte table width n_embd*12 -> n_embd*num_encoder_layers (6 chunks; 463.6M -> 231.8M parameters)"
+    category: [model-mechanism, capacity-change]
+    flag: ve_unet
+    provenance: inferred
+    bundled: false
+    numerics: changed
+  - id: H012
+    file: train_gpt2.py
+    header: "@@ -251,13 +268,29 @@"
+    description: "block mask built directly at 128-token-block granularity: block-level causal, document-range overlap and window ceil((w+127)/128) blocks, BlockMask.from_kv_blocks with the token-level mask_mod for every selected block; forward argument renamed sliding_window"
+    category: model-mechanism
+    flag: [blockmask_manual, window_warmup]
+    provenance: inferred
+    bundled: true
+    numerics: changed
+    note: >-
+      Intended as a speed-up (avoids create_block_mask), but it is not semantics-preserving: a key block at block
+      distance ceil(w/128) can still contain keys within w tokens of the query (e.g. w = 128k, query at the start
+      of its block, key at the end of its block), and that block is not selected, so those pairs are masked although
+      the mask_mod would allow them. The effective window is slightly shorter near its edge. Verified by reading the
+      index arithmetic; not measured.
+  - id: H013
+    file: train_gpt2.py
+    header: "@@ -267,3 +300,3 @@"
+    description: "vi = vte(idx[None]).chunk(num_encoder_layers)"
+    category: model-mechanism
+    flag: ve_unet
+    provenance: inferred
+    bundled: false
+    numerics: changed
+  - id: H014
+    file: train_gpt2.py
+    header: "@@ -278,3 +311,4 @@"
+    description: "decoder layer i uses vi[num_encoder_layers - 1 - i] (U-net mirror) instead of vi[num_encoder_layers + i]"
+    category: model-mechanism
+    flag: ve_unet
+    provenance: inferred
+    bundled: false
+    numerics: changed
+  - id: H015
+    file: train_gpt2.py
+    header: "@@ -282,3 +316,3 @@"
+    description: "softcap read from self.lm_head_softcap (30)"
+    category: cosmetic
+    flag: "config:logit_softcap"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H016
+    file: train_gpt2.py
+    header: "@@ -290,27 +324,16 @@"
+    description: "shard header read with torch.from_file; shard read with readinto into a pinned uint16 tensor (no numpy)"
+    category: throughput-only
+    flag: code_opts_15
+    provenance: inferred
+    bundled: false
+    numerics: identical
+    note: "same token values; the flagged trainer peeks headers with numpy in every preset (sizes only) and loads into pinned memory when code_opts_15"
+  - id: H017
+    file: train_gpt2.py
+    header: "@@ -324,3 +347,3 @@"
+    description: "glob via Path.cwd().glob"
+    category: cosmetic
+    flag: none
+    flag_reason: "same sorted file list for the relative patterns used"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H018
+    file: train_gpt2.py
+    header: "@@ -328,8 +351,5 @@"
+    description: shard sizes kept in a list
+    category: cosmetic
+    flag: none
+    flag_reason: bookkeeping (the flagged loader also keeps ntoks)
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H019
+    file: train_gpt2.py
+    header: "@@ -344,3 +364,3 @@"
+    description: shard load takes the known size
+    category: throughput-only
+    flag: code_opts_15
+    provenance: inferred
+    bundled: false
+    numerics: identical
+  - id: H020
+    file: train_gpt2.py
+    header: "@@ -349,10 +369,11 @@"
+    description: "inputs int32 / targets int64 copied with non_blocking=True from pinned memory; shard test 'pos + B >= len' -> 'pos + B + 1 >= len'"
+    category: [throughput-only, infra/logging]
+    flag: [code_opts_15, "config:loader_shard_rule"]
+    provenance: inferred
+    bundled: true
+    numerics: identical
+    parts:
+      - {what: "non-blocking pinned copies, int32 input ids (embedding lookups identical)", flag: code_opts_15, category: throughput-only}
+      - {what: "PR #43: shard switches one position earlier (only when pos + B == len - 1); with 100M-token shards and B = 524,288 this never happens, so streams are identical (explore_tools/shard_sim.py)", flag: "config:loader_shard_rule", category: infra/logging}
+  - id: H021
+    file: train_gpt2.py
+    header: "@@ -369,3 +390,3 @@"
+    description: "num_iterations 1530 -> 1480"
+    category: hyperparameter/schedule
+    flag: "config:num_iterations"
+    provenance: direct
+    bundled: false
+    numerics: changed
+    coupled:
+      - "num_iterations: co-tuned with #15; warmdown_iters stays 600 (now 600/1480 = 0.405)"
+  - id: H022
+    file: train_gpt2.py
+    header: "@@ -395,3 +416,3 @@"
+    description: logdir creation commented out
+    category: infra/logging
+    flag: none
+    flag_reason: logging/checkpoint directory only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H023
+    file: train_gpt2.py
+    header: "@@ -424,2 +445,3 @@"
+    description: "assert train_accumulation_steps == 1 (the code now only runs on 8 GPUs)"
+    category: infra/logging
+    flag: none
+    flag_reason: "superseded by the unified batch convention (any world size dividing 8; CHANGES/infra.md)"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H024
+    file: train_gpt2.py
+    header: "@@ -455,3 +477,3 @@"
+    description: comment removed from the scalar Adam line
+    category: cosmetic
+    flag: none
+    flag_reason: comment
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H025
+    file: train_gpt2.py
+    header: "@@ -472,2 +494,4 @@"
+    description: "persistent int32 window tensor initialised to 64 before the loop"
+    category: throughput-only
+    flag: [code_opts_15, "config:window_warmup_start"]
+    provenance: inferred
+    bundled: false
+    numerics: identical
+  - id: H026
+    file: train_gpt2.py
+    header: "@@ -476,3 +500,3 @@"
+    description: "time.time -> time.perf_counter (training clock start)"
+    category: infra/logging
+    flag: none
+    flag_reason: "timing instrumentation only (PR #43); Step 5's per-step timing uses perf_counter for every preset"
+    provenance: inferred
+    bundled: false
+    numerics: n/a
+  - id: H027
+    file: train_gpt2.py
+    header: "@@ -485,7 +509,10 @@"
+    description: "window = 64*int((64 + 1728*step/N)//64) computed as a Python int and copied into the persistent tensor only when it changes; perf_counter"
+    category: throughput-only
+    flag: [code_opts_15, window_warmup]
+    provenance: inferred
+    bundled: true
+    numerics: identical
+    note: "same integers as r13's 64*((step/N*1728 + 64)//64) at every step for N = 1750, 1530, 1480 (tools/window_schedule_check.py); only the tensor handling changes"
+  - id: H028
+    file: train_gpt2.py
+    header: "@@ -495,3 +522,3 @@"
+    description: perf_counter (validation clock stop)
+    category: infra/logging
+    flag: none
+    flag_reason: timing instrumentation only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H029
+    file: train_gpt2.py
+    header: "@@ -503,3 +530,3 @@"
+    description: validation forward receives the persistent window tensor
+    category: throughput-only
+    flag: code_opts_15
+    provenance: inferred
+    bundled: false
+    numerics: identical
+  - id: H030
+    file: train_gpt2.py
+    header: "@@ -510,3 +537,3 @@"
+    description: perf_counter (validation clock restart)
+    category: infra/logging
+    flag: none
+    flag_reason: timing instrumentation only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H031
+    file: train_gpt2.py
+    header: "@@ -515,9 +542,9 @@"
+    description: "checkpoint torch.save at the last step commented out; perf_counter"
+    category: infra/logging
+    flag: none
+    flag_reason: "checkpoint I/O happens after the last step with the clock stopped; no effect on training or metrics. Checkpointing becomes a run option in Step 5 (no resume code)."
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H032
+    file: train_gpt2.py
+    header: "@@ -532,17 +559,11 @@"
+    description: "accumulation loop removed (single forward/backward, then the next batch is fetched after backward); no gradient division; momentum warmup applied to every Muon param group"
+    category: [throughput-only, infra/logging]
+    flag: code_opts_15
+    provenance: inferred
+    bundled: true
+    numerics: identical
+    parts:
+      - {what: "fetch after backward instead of between forward and backward", flag: code_opts_15, category: throughput-only}
+      - {what: "momentum warmup loops over all param groups (needed once Muon has one group per parameter size; identical for one group)", flag: code_opts_15, category: throughput-only}
+      - {what: "accumulation loop and division removed (assert accum == 1): the flagged trainer keeps the loop under the unified convention; at accum 1 the division is by 1 (exact)", flag: none, category: infra/logging}
+  - id: H033
+    file: train_gpt2.py
+    header: "@@ -555,6 +576,4 @@"
+    description: "per-step log line no longer prints train_loss (removes a per-step .item() host sync)"
+    category: infra/logging
+    flag: none
+    flag_reason: >-
+      logging. Note the throughput side effect: removing the per-step sync speeds up #15 but belongs to no
+      mechanism. The flagged trainer's logging is uniform across presets (Step 5 records per-step train loss without
+      a per-step host sync), so this speed-up is deliberately not attributed to any arm.
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H034
+    file: README.md
+    header: "@@ -2,8 +2,8 @@"
+    description: README headline numbers
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H035
+    file: README.md
+    header: "@@ -14,6 +14,7 @@"
+    description: README technique list adds extra embedding layers
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H036
+    file: README.md
+    header: "@@ -32,10 +33,10 @@"
+    description: README run description (1430 steps, 0.75B tokens)
+    category: cosmetic
+    flag: none
+    flag_reason: "documentation (the README's 1430 steps disagrees with every log/code value at this point: the #14 tree says 1530, the #15 logs run 1480)"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H037
+    file: README.md
+    header: "@@ -77,6 +78,7 @@"
+    description: "README table row #14"
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a

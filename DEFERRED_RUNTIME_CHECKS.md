@@ -58,3 +58,15 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | smoke train | NOT RUN (by design) | 20 steps preset r14; peak memory recorded (vte output 65,536 × 9,216 bf16 per micro-batch) |
 | torch.compile behaviour | NOT RUN (by design) | Rotary's Python-side cache inside the compiled graph: no recompilation after step 1 |
 | fixed point | NOT RUN (by design) | full run vs committed logs (38 runs, mean final 3.2776 at 1530) |
+
+## r15 (record #15)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS (100 tensors + 12 buffers); `strict=True` load (`attn.lambdas` shape (2,)) |
+| forward equivalence | NOT RUN (by design) | snapshot vs flagged r15 bitwise identical loss |
+| Muon distribution bit-identity (`code_opts_15` alone) | NOT RUN (by design) | one optimizer step from identical state with `code_opts_15` on vs off (`muon_ema_momentum` fixed): parameters bitwise identical |
+| block mask construction (`blockmask_manual`) | NOT RUN (by design) | materialise both masks for a window of 128 and count selected pairs: flagged/record manual mask = create_block_mask count − 8,128 per query block (`tools/blockmask_check.py`) |
+| smoke train | NOT RUN (by design) | 20 steps preset r15 at world_size 1 and 8 (Muon all_gather requires len(params) % W == 0: 48 and 24 → W ∈ {1,2,4,8}) |
+| torch.compile behaviour | NOT RUN (by design) | uncompiled `flex_attention` inside the compiled model compiles to a fused kernel (no eager fallback warning) |
+| fixed point | NOT RUN (by design) | full run vs committed logs (75 runs, mean final 3.2785 at 1480) |

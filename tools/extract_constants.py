@@ -110,6 +110,8 @@ def extract(s: Snapshot):
     out['vocab_size'] = s.consts.get('num_vocab', g.get('vocab_size'))
     out['n_layer'], out['n_head'], out['n_embd'] = g.get('n_layer'), g.get('n_head'), g.get('n_embd')
     out['logit_softcap'] = find(src, r'logits = (\d+) \* torch\.tanh\(logits / \1\)', cast=int)
+    if out['logit_softcap'] is None and 'self.lm_head_softcap * torch.tanh(logits / self.lm_head_softcap)' in src:
+        out['logit_softcap'] = g.get('lm_head_softcap')   # record #15: GPTConfig field
     # optimizers: r11-r17 four optimizers; r18 one Adam with param groups + Muon
     if 'optimizer4' in s.calls:
         out['lr_embed'], out['lr_head'] = s.kw('optimizer1', 'lr'), s.kw('optimizer2', 'lr')
@@ -148,6 +150,11 @@ def extract(s: Snapshot):
         q1, end, s0, s1, q2 = map(int, m.groups())
         assert q1 == q2 and s0 == s1, 'unexpected window schedule shape'
         out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
+    m = re.search(r'sw_size =\s+(\d+) \* int\(\((\d+) \+ \((\d+) - (\d+)\) \* step / args\.num_iterations\) // (\d+)\)', src)
+    if m:   # record #15: q * int((start + (end - start) * step / N) // q)
+        q1, s0, end, s1, q2 = map(int, m.groups())
+        assert q1 == q2 and s0 == s1, 'unexpected window schedule shape'
+        out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
     return out
 
 def detect_flags(s: Snapshot):
@@ -169,6 +176,11 @@ def detect_flags(s: Snapshot):
     else:
         f['rotary_variant'] = None
     f['value_embeds'] = ('vte = nn.Embedding' in src) or ('self.value_embeds' in src)
+    f['ve_unet'] = ('vi[self.num_encoder_layers-1-i]' in src) or ('ve += reversed(ve)' in src) or ('ve[0], ve[1], ve[2]' in src)
+    f['ve_lambdas2'] = 'self.lambdas = nn.Parameter(torch.tensor([0.5, 0.5]))' in src
+    f['code_opts_15'] = 'dist.all_gather(update_buffers' in src
+    f['muon_ema_momentum'] = 'buf.lerp_(g, 1 - momentum)' in src
+    f['blockmask_manual'] = 'BlockMask.from_kv_blocks' in src
     return f
 
 def main():
