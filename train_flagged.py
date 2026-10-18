@@ -13,7 +13,8 @@ def _peek_flags_before_torch(argv):
             return (yaml.safe_load(f) or {}).get('flags') or {}
         import json as _json
         return _json.load(f).get('flags') or {}
-if _peek_flags_before_torch(sys.argv).get('code_opts_17'):
+_early_flags = _peek_flags_before_torch(sys.argv)
+if _early_flags.get('code_opts_17') and not _early_flags.get('code_opts_18'): # rec-17 only (rec-18 drops it)
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import uuid
 import glob
@@ -25,6 +26,8 @@ from dataclasses import dataclass, fields
 
 import numpy as np
 import torch
+if _early_flags.get('code_opts_18'): # rec-18 runs a dummy backward right after importing torch
+    torch.empty(1, device='cuda', requires_grad=True).backward()
 from torch import nn
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -68,6 +71,13 @@ FLAGS = {
     'rope_half_truncate': False, # "improved rotary" frequencies: (1/1024)**linspace(0,1,dim/4) on half the pairs, zero on the rest
     'drop_attn_layer': False,  # layer dropped_attn_layer has no attention (capacity change)
     'code_opts_17': False,   # rec-17 throughput changes: expandable_segments allocator; enable_gqa dropped again
+    # rec-18
+    'fp32_small_params': False, # model kept in fp32 with only the embeddings in bf16 (rec-18 bf16_embeds) instead of
+                                # model.bfloat16() + fp32 linears: scalars (lambdas, skip weights) and rotary tables stay fp32
+    'code_opts_18': False,   # rec-18 rewrite, throughput/implementation: one Adam with param groups, whole batch fetched
+                             # at step start, no no_sync, window tensor copied every step, no coordinate-descent tuning,
+                             # no set_stance/enable_gqa/expandable_segments, Muon normalises after the transpose,
+                             # dummy backward after importing torch
 }
 FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14', 'v17')}
 REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel'],
@@ -115,9 +125,15 @@ def zeropower_via_newtonschulz5(G, steps=10, eps=1e-7):
     assert len(G.shape) == 2
     a, b, c = (3.4445, -4.7750,  2.0315)
     X = G.bfloat16()
-    X /= (X.norm() + eps) # ensure top singular value <= 1
-    if G.size(0) > G.size(1):
-        X = X.T
+    if flags.code_opts_18: # rec-18: transpose first, then normalise (same norm; reduction over a transposed view)
+        if G.size(0) > G.size(1):
+            X = X.T
+        # Ensure spectral norm is at most 1
+        X = X / (X.norm() + 1e-7)
+    else:
+        X /= (X.norm() + eps) # ensure top singular value <= 1
+        if G.size(0) > G.size(1):
+            X = X.T
     for _ in range(steps):
         A = X @ X.T
         B = b * A + c * A @ A # adapted from suggestion by @jxbz, @leloykun, and @YouJiacheng
@@ -404,7 +420,7 @@ class CausalSelfAttention(nn.Module):
             q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         if flags.flex_kernel:
             fa = flex_attention_raw if flags.code_opts_15 else flex_attention
-            if flags.code_opts_16 and not flags.code_opts_17: # rec-16 passes enable_gqa=True, rec-17 drops it
+            if flags.code_opts_16 and not flags.code_opts_17 and not flags.code_opts_18: # rec-16 only passes enable_gqa=True
                 y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask, enable_gqa=True)
             else:
                 y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
@@ -474,7 +490,7 @@ class ValueEmbedding(nn.Module):
         self.n_layer = config.n_layer
 
     def forward(self, inputs):
-        ve = [emb(inputs) for emb in self.embed]
+        ve = [emb(inputs).bfloat16() if flags.fp32_small_params else emb(inputs) for emb in self.embed]
         if flags.ve_sparsify:
             # rec-17: 012 ... 012 structure (first and last layers only), improved on the U-net structure
             k = len(ve)
@@ -631,6 +647,8 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         x = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        if flags.fp32_small_params:
+            x = x.bfloat16() # rec-18 (no-op: embeddings are bf16)
         x = F.rms_norm(x, (x.size(-1),)) # @Grad62304977
         x0 = x
         v1 = None
@@ -719,7 +737,7 @@ class DistributedDataLoader:
         self.torch_io = torch_io # rec-15: pinned uint16 shards, int32 inputs / int64 targets copied non_blocking
         self.vranks = vranks
         self.owned = list(owned)
-        assert shard_rule in ('gt_plus1', 'ge', 'ge_plus1'), f"unknown shard_rule {shard_rule}"
+        assert shard_rule in ('gt_plus1', 'ge', 'ge_plus1', 'global_ge_plus1'), f"unknown shard_rule {shard_rule}"
         self.shard_rule = shard_rule
         # record #11 consumed its first batch twice (prefetch, then train_loader.reset() before the loop);
         # replay_first_round reproduces that at step granularity: the first round over the owned virtual
@@ -766,6 +784,12 @@ class DistributedDataLoader:
         T = self.T
         st = self.states[self.cursor]
         tokens = self.shard_tokens(st['shard'])
+        if self.shard_rule == 'global_ge_plus1':
+            # rec-18: one decision for the whole global batch, taken before reading: load next shard if necessary
+            if (st['pos'] - st['v'] * B * T) + B * T * self.vranks + 1 >= len(tokens):
+                st['shard'] = (st['shard'] + 1) % len(self.files)
+                st['pos'] = st['v'] * B * T
+                tokens = self.shard_tokens(st['shard'])
         buf = tokens[st['pos'] : st['pos']+B*T+1]
         if self.torch_io:
             # host side async is sufficient (rec-15)
@@ -788,8 +812,10 @@ class DistributedDataLoader:
                 advance = st['pos'] + (B * T * self.vranks + 1) > len(tokens) # record #11
             elif self.shard_rule == 'ge':
                 advance = st['pos'] + B * T * self.vranks >= len(tokens) # records #12-#14
-            else: # 'ge_plus1'
+            elif self.shard_rule == 'ge_plus1':
                 advance = st['pos'] + B * T * self.vranks + 1 >= len(tokens) # records #15-#17 (PR #43)
+            else: # 'global_ge_plus1': decided before the read (rec-18)
+                advance = False
             if advance:
                 st['shard'] = (st['shard'] + 1) % len(self.files)
                 st['pos'] = st['v'] * B * T
@@ -819,6 +845,8 @@ class Hyperparameters:
     num_iterations : int # number of iterations to run
     warmup_iters : int
     warmdown_iters : int # number of iterations of linear warmup/warmdown for triangular or trapezoidal schedule
+    lr_schedule_form : str # 'iters': warmup_iters/warmdown_iters (records #11-#17) | 'frac': cooldown_frac (record #18)
+    cooldown_frac : float # lr_schedule_form 'frac': fraction of training spent cooling down (record #18: 0.4)
     weight_decay : float
     # evaluation and logging hyperparams
     val_loss_every : int # every how many steps to evaluate val loss? 0 for only at the end
@@ -846,6 +874,7 @@ class Hyperparameters:
     window_warmup_start : int # flags.window_warmup: window at step 0, in tokens (record #13: 64)
     window_warmup_end : int # window at the last step, in tokens (record #13: 1792)
     window_warmup_quantum : int # window is a multiple of this many tokens (record #13: 64)
+    window_block_formula : str # flags.block_window: block-count expression 'r16' (records #16-#17) | 'r18' (record #18)
 
 def load_config(path):
     with open(path) as f:
@@ -913,7 +942,8 @@ val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_world_size, [dd
 if master_process:
     print(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
     print(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
-x, y = train_loader.next_batch()
+if not flags.code_opts_18: # rec-18 fetches each step's batch at the start of the step instead
+    x, y = train_loader.next_batch()
 
 # there are only 50257 unique GPT-2 tokens; we extend to nearest multiple of 128 for efficiency. suggested to me by @Grad62304977.
 # this originates from Karpathy's experiments.
@@ -922,12 +952,18 @@ model = GPT(GPTConfig(vocab_size=num_vocab, n_layer=args.n_layer, n_head=args.n_
                       logit_softcap=args.logit_softcap, attn_window=args.attn_window,
                       embed_vocab_size=args.embed_vocab_size, dropped_attn_layer=args.dropped_attn_layer,
                       ve_sparse_tables=args.ve_sparse_tables))
-model = model.cuda().bfloat16()
-for m in model.modules():
-    if isinstance(m, CastedLinear):
-        m.float()
+if flags.fp32_small_params: # rec-18 (bf16_embeds = True)
+    model = model.cuda()
+    for m in model.modules():
+        if isinstance(m, nn.Embedding):
+            m.bfloat16()
+else:
+    model = model.cuda().bfloat16()
+    for m in model.modules():
+        if isinstance(m, CastedLinear):
+            m.float()
 
-if hasattr(config, "coordinate_descent_tuning"):
+if hasattr(config, "coordinate_descent_tuning") and not flags.code_opts_18:
     config.coordinate_descent_tuning = True # suggested by @Chillee
 model = torch.compile(model)
 # here we wrap model into DDP container
@@ -946,17 +982,46 @@ enable_math_sdp(False)
 
 # init the optimizer(s)
 adam_betas = tuple(args.adam_betas)
-embed_params = [raw_model.transformer.wte.weight] + ([raw_model.transformer.vte.weight] if flags.value_embeds else [])
-optimizer1 = torch.optim.Adam(embed_params, lr=args.lr_embed, betas=adam_betas, fused=True)
-optimizer2 = torch.optim.Adam([raw_model.lm_head.weight],         lr=args.lr_head,  betas=adam_betas, fused=True)
+if flags.ve_split:
+    embed_params = [raw_model.transformer.wte.weight, *raw_model.value_embeds.parameters()] # rec-16
+elif flags.value_embeds:
+    embed_params = [raw_model.transformer.wte.weight, raw_model.transformer.vte.weight] # rec-14
+else:
+    embed_params = [raw_model.transformer.wte.weight]
 params = list(raw_model.transformer.h.parameters())
 matrix_params = [p for p in params if p.ndim == 2]
 scalar_params = [p for p in params if p.ndim < 2]+[raw_model.skip_weights]
-optimizer3 = Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
-optimizer4 = torch.optim.Adam(scalar_params, lr=args.lr_scalar, betas=adam_betas, fused=True) # note that this learning rate is neither sensitive nor tuned
-optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
+if flags.code_opts_18:
+    # rec-18: one Adam with three param groups, then Muon
+    optimizer1 = torch.optim.Adam([dict(params=embed_params, lr=args.lr_embed),
+                                   dict(params=[raw_model.lm_head.weight], lr=args.lr_head),
+                                   dict(params=scalar_params, lr=args.lr_scalar)],
+                                  betas=adam_betas, fused=True)
+    muon_optimizer = Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
+    optimizers = [optimizer1, muon_optimizer]
+else:
+    optimizer1 = torch.optim.Adam(embed_params, lr=args.lr_embed, betas=adam_betas, fused=True)
+    optimizer2 = torch.optim.Adam([raw_model.lm_head.weight],         lr=args.lr_head,  betas=adam_betas, fused=True)
+    optimizer3 = Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
+    optimizer4 = torch.optim.Adam(scalar_params, lr=args.lr_scalar, betas=adam_betas, fused=True) # note that this learning rate is neither sensitive nor tuned
+    optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
+    muon_optimizer = optimizer3
+# infra: every parameter is optimised by exactly one optimizer (fails at start-up instead of silently skipping one)
+_opt_params = [p for opt in optimizers for g in opt.param_groups for p in g['params']]
+assert len(_opt_params) == len({id(p) for p in _opt_params}), "a parameter is in two optimizers"
+assert {id(p) for p in _opt_params} == {id(p) for p in raw_model.parameters()}, "a parameter is in no optimizer"
+
 # learning rate decay scheduler (linear warmup and warmdown)
 def get_lr(it):
+    if args.lr_schedule_form == 'frac': # rec-18: stable then decay, cooldown as a fraction of training
+        t = 1 - it / args.num_iterations # time remaining in training
+        assert 1 >= t > 0
+        # 1) constant lr for first part of training
+        if t >= args.cooldown_frac:
+            return 1.0
+        # 2) then linear cooldown
+        else:
+            return t / args.cooldown_frac
     assert it <= args.num_iterations
     # 1) linear warmup for warmup_iters steps
     if it < args.warmup_iters:
@@ -1008,13 +1073,21 @@ for step in range(args.num_iterations + 1):
     if flags.window_warmup:
         # Set the attention blocksize for the current step, in chunks of window_warmup_quantum (rec-13, @fernbear.bsky.social)
         q, w0, w1 = args.window_warmup_quantum, args.window_warmup_start, args.window_warmup_end
-        if flags.block_window:
+        if flags.block_window and args.window_block_formula == 'r18':
+            # rec-18: linear increase over training in chunks of 128 blocks ((1-x)*128 + x*1856 for 64 -> 1792, q 64)
+            x_progress = step / args.num_iterations # training progress
+            assert 0 <= x_progress <= 1
+            sw_size = int(((1 - x_progress) * (w0 + q) + x_progress * (w1 + q)) // 128)
+        elif flags.block_window:
             # rec-16: linearly increase the window over training in chunks of q from w0 -> w1, counted in 128-token blocks
             frac_done = step / args.num_iterations # training progress
             sw_size = int(((1 - frac_done) * w0 + frac_done * w1 + q) // 128)
         else:
             sw_size = q * int((w0 + (w1 - w0) * step / args.num_iterations) // q)
-        if flags.code_opts_15:
+        if flags.code_opts_18: # rec-18: copied every step
+            sliding_window_size.copy_(sw_size)
+            attn_blocksize = sliding_window_size
+        elif flags.code_opts_15:
             if sw_size != sw_size_prev:
                 sliding_window_size.copy_(sw_size, non_blocking=True)
                 sw_size_prev = sw_size
@@ -1075,13 +1148,23 @@ for step in range(args.num_iterations + 1):
 
     # --------------- TRAINING SECTION BEGIN -----------------
     model.train()
+    if flags.code_opts_18:
+        # rec-18: the step's micro-batches fetched first; every micro-step backward all-reduces (no no_sync)
+        micro_batches = [train_loader.next_batch() for _ in range(train_accumulation_steps)]
+        for x, y in micro_batches:
+            loss = model(x, y, attn_blocksize=attn_blocksize)
+            loss.backward()
+            train_loss = loss.detach()
+            del loss
     for i in range(1, train_accumulation_steps+1):
+        if flags.code_opts_18:
+            break
         if flags.code_opts_15:
             # rec-15: forward and backward, then fetch the next micro-batch (same data, different overlap)
             with contextlib.ExitStack() as stack:
                 if i < train_accumulation_steps: # there's no need to sync gradients every accumulation step
                     stack.enter_context(model.no_sync())
-                if flags.code_opts_16 and step >= 5: # rec-16
+                if flags.code_opts_16 and not flags.code_opts_18 and step >= 5: # rec-16, rec-17
                     stack.enter_context(torch.compiler.set_stance(skip_guard_eval_unsafe=True))
                 loss = model(x, y, attn_blocksize=attn_blocksize)
                 loss.backward()
@@ -1100,17 +1183,18 @@ for step in range(args.num_iterations + 1):
                 loss.backward()
         else:
             loss.backward() # just sync on the last step
-    if not (flags.code_opts_16 and train_accumulation_steps == 1): # rec-16 skips the division by 1 (exact either way)
+    if not ((flags.code_opts_16 or flags.code_opts_18) and train_accumulation_steps == 1): # rec-16+ skip dividing by 1 (exact either way)
         for p in model.parameters():
             p.grad /= train_accumulation_steps
     # momentum warmup for Muon
     frac = min(step/args.muon_momentum_warmup_steps, 1)
-    for group in optimizer3.param_groups: # one group, or one per parameter size with code_opts_15
+    for group in muon_optimizer.param_groups: # one group, or one per parameter size with code_opts_15
         group['momentum'] = (1 - frac) * args.muon_momentum_warmup_start + frac * args.muon_momentum_warmup_end
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):
         opt.step()
-        sched.step()
+        if not (args.lr_schedule_form == 'frac' and step == args.num_iterations - 1): # rec-18 skips the final sched.step
+            sched.step()
     # null the gradients
     model.zero_grad(set_to_none=True)
     # --------------- TRAINING SECTION END -------------------

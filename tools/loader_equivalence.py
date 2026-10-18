@@ -56,7 +56,7 @@ def load_loader_class(path, shards):
     mod = ast.Module(body=[cls], type_ignores=[])
     torch, np = make_torch_np(shards)
     files = sorted(shards)
-    ns = dict(torch=torch, np=np,
+    ns = dict(torch=torch, np=np, os=os,
               glob=types.SimpleNamespace(glob=lambda pattern: list(files)),
               Path=types.SimpleNamespace(cwd=lambda: types.SimpleNamespace(glob=lambda pattern: list(files))),
               _peek_data_shard=lambda f, *a: len(shards[os.path.basename(str(f))]),
@@ -68,6 +68,15 @@ def load_loader_class(path, shards):
 # ---------------------------------------------------------------------------------------------- protocols
 def record_stream(snapshot_cls, protocol, B, T, W, steps):
     """Token offsets per step for the record run as a W-GPU job. protocol: dict describing the record loop."""
+    if protocol.get('global_batch'):   # record #18: each rank reads its device slice of the global batch per step
+        loaders = []
+        for r in range(W):
+            os.environ['RANK'], os.environ['WORLD_SIZE'] = str(r), str(W)
+            loaders.append(snapshot_cls('pattern'))
+        out = []
+        for _ in range(steps):
+            out.append([ld.next_batch(W * B * T)[0].first() for ld in loaders])
+        return out
     loaders = [snapshot_cls('pattern', *protocol['ctor'](B, T, r, W)) for r in range(W)]
     cur = [ld.next_batch() for ld in loaders]          # prefetch before the loop
     if protocol.get('reset_before_loop'):
@@ -89,8 +98,16 @@ def flagged_stream(flagged_cls, hp, flags, B, T, W, steps):
         kw['torch_io'] = True
     loaders = [flagged_cls('pattern', B, T, vr, range(r * A, (r + 1) * A), hp['loader_shard_rule'],
                            hp['loader_replay_first_round'], **kw) for r in range(W)]
-    cur = [ld.next_batch() for ld in loaders]
     out = []
+    if flags.get('code_opts_18'):   # rec-18 protocol: fetch the step's micro-batches at the start of the step
+        for _ in range(steps):
+            step = [None] * vr
+            for r in range(W):
+                for a in range(A):
+                    step[r * A + a] = loaders[r].next_batch()[0].first()
+            out.append(step)
+        return out
+    cur = [ld.next_batch() for ld in loaders]
     for _ in range(steps):
         step = [None] * vr
         for a in range(A):
@@ -111,6 +128,8 @@ PROTOCOLS = {
     'r15': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
     'r16': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
     'r17': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
+    # record #18: DistributedDataLoader(pattern) reads RANK/WORLD_SIZE from the environment; next_batch(global batch)
+    'r18': dict(ctor=None, global_batch=True),
 }
 
 def main():

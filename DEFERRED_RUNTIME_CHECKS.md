@@ -92,3 +92,15 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | smoke train | NOT RUN (by design) | 20 steps preset r17 |
 | torch.compile behaviour | NOT RUN (by design) | `None` entries in the value-embedding list do not cause graph breaks per layer |
 | fixed point | NOT RUN (by design) | full run vs the committed log (final 3.2794 at 1490) |
+
+## r18 (record #18)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS (97 tensors, 275,742,772); load with the key rename, `strict=True` |
+| forward equivalence | NOT RUN (by design) | snapshot vs flagged r18 bitwise identical loss; dtypes: block lambdas fp32, rotary cos/sin fp32, embeddings bf16 |
+| optimizer coverage | NOT RUN (by design) | the start-up assertion (every parameter in exactly one optimizer) passes for all eight presets |
+| smoke train | NOT RUN (by design) | 20 steps preset r18; step-0 val 10.8258; LR multiplier 1.0 until step 834, then t/0.4 |
+| torch.compile behaviour | NOT RUN (by design) | no coordinate-descent tuning: compile time shorter than r17's; no recompilation as the window grows |
+| fixed point | NOT RUN (by design) | full run vs the committed log (final 3.2785 at 1390) |
+| leave-one-out sanity | NOT RUN (by design) | r18 with `logit_softcap: 30` runs (this is arm 7's LOO configuration) |

@@ -1,0 +1,82 @@
+# static gates for r18
+syntax: PASS
+constants:
+adam_betas                  snapshot=[0.8, 0.95]                            preset=[0.8, 0.95]                            match
+attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+cooldown_frac               snapshot=0.4                                    preset=0.4                                    match
+dropped_attn_layer          snapshot=7                                      preset=7                                      match
+embed_vocab_size            snapshot=50304                                  preset=50304                                  match
+global_batch_tokens         snapshot=524288                                 preset=524288                                 match
+input_bin                   snapshot=data/fineweb10B/fineweb_train_*.bin    preset=data/fineweb10B/fineweb_train_*.bin    match
+input_val_bin               snapshot=data/fineweb10B/fineweb_val_*.bin      preset=data/fineweb10B/fineweb_val_*.bin      match
+loader_replay_first_round   snapshot=False                                  preset=False                                  match
+loader_shard_rule           snapshot=global_ge_plus1                        preset=global_ge_plus1                        match
+logit_softcap               snapshot=15                                     preset=15                                     match
+lr_embed                    snapshot=0.6                                    preset=0.6                                    match
+lr_head                     snapshot=0.008                                  preset=0.008                                  match
+lr_muon                     snapshot=0.05                                   preset=0.05                                   match
+lr_scalar                   snapshot=0.04                                   preset=0.04                                   match
+lr_schedule_form            snapshot=frac                                   preset=frac                                   match
+micro_batch_tokens          snapshot=65536                                  preset=65536                                  match
+muon_momentum               snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_end    snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_start  snapshot=0.85                                   preset=0.85                                   match
+muon_momentum_warmup_steps  snapshot=300                                    preset=300                                    match
+n_embd                      snapshot=768                                    preset=768                                    match
+n_head                      snapshot=6                                      preset=6                                      match
+n_layer                     snapshot=12                                     preset=12                                     match
+num_iterations              snapshot=1390                                   preset=1390                                   match
+save_every                  snapshot=-                                      preset=0                                      NOT EXTRACTABLE (absent in snapshot)
+sequence_length             snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+val_loss_every              snapshot=125                                    preset=125                                    match
+val_tokens                  snapshot=10485760                               preset=10485760                               match
+ve_sparse_tables            snapshot=3                                      preset=3                                      match
+vocab_size                  snapshot=50304                                  preset=50304                                  match
+warmdown_iters              snapshot=-                                      preset=600                                    NOT EXTRACTABLE (absent in snapshot)
+warmup_iters                snapshot=-                                      preset=0                                      NOT EXTRACTABLE (absent in snapshot)
+weight_decay                snapshot=-                                      preset=0                                      NOT EXTRACTABLE (absent in snapshot)
+window_block_formula        snapshot=r18                                    preset=r18                                    match
+window_warmup_end           snapshot=-                                      preset=1792                                   checked only as start+q / end+q (record #18 form)
+window_warmup_quantum       snapshot=-                                      preset=64                                     checked only as start+q / end+q (record #18 form)
+window_warmup_start         snapshot=-                                      preset=64                                     checked only as start+q / end+q (record #18 form)
+derived:start+q, end+q      snapshot=(128, 1856)                            preset=(128, 1856)                            match
+flag:block_window           snapshot=True                                   preset=True                                   match
+flag:blockmask_manual       snapshot=True                                   preset=True                                   match
+flag:blockmask_separate     snapshot=True                                   preset=True                                   match
+flag:code_opts_15           snapshot=True                                   preset=True                                   match
+flag:code_opts_16           snapshot=True                                   preset=True                                   match
+flag:code_opts_17           snapshot=False                                  preset=False                                  match
+flag:code_opts_18           snapshot=True                                   preset=True                                   match
+flag:doc_masking            snapshot=True                                   preset=True                                   match
+flag:drop_attn_layer        snapshot=True                                   preset=True                                   match
+flag:flex_kernel            snapshot=True                                   preset=True                                   match
+flag:fp32_small_params      snapshot=True                                   preset=True                                   match
+flag:long_context           snapshot=True                                   preset=True                                   match
+flag:muon_ema_momentum      snapshot=True                                   preset=True                                   match
+flag:rope_half_truncate     snapshot=True                                   preset=True                                   match
+flag:rotary_variant         snapshot=v17                                    preset=v17                                    match
+flag:value_embeds           snapshot=True                                   preset=True                                   match
+flag:ve_lambdas2            snapshot=True                                   preset=True                                   match
+flag:ve_sparsify            snapshot=True                                   preset=True                                   match
+flag:ve_split               snapshot=True                                   preset=True                                   match
+flag:ve_unet                snapshot=True                                   preset=True                                   match
+flag:window_warmup          snapshot=True                                   preset=True                                   match
+configs/r18.yaml: 0 mismatches
+ledger:
+ledger/r18.yaml: 43 hunks in diff, 43 ledger entries, 0 problems
+params: snapshot total 275,742,772 (275.7M) {'embed': 38633472, 'blocks': 82575406, 'value_embeddings': 115900416, 'lm_head': 38633472, 'other': 6}
+params: flagged  total 275,742,772 (275.7M) {'embed': 38633472, 'blocks': 82575406, 'value_embeddings': 115900416, 'other': 6, 'lm_head': 38633472}
+params: 97 tensors in snapshot, 97 in flagged; buffers snapshot=22 flagged=22
+params: expected total 275,742,772 -> flagged 275,742,772 PASS
+params: expected embed 38,633,472 -> flagged 38,633,472 PASS
+params: expected lm_head 38,633,472 -> flagged 38,633,472 PASS
+params: expected value_embeddings 115,900,416 -> flagged 115,900,416 PASS
+params: expected blocks 82,575,406 -> flagged 82,575,406 PASS
+params: PASS (names and shapes identical after name map)
+loader:
+world_size=1: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=2: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=4: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=8: first step whose micro-batches differ from the 8-GPU record stream: None
+(shard boundaries crossed in the record stream at steps [23, 46, 69, 92, 115, 138]...; first two steps: [0, 32], [256, 288])
+SUMMARY: syntax=PASS constants=PASS ledger=PASS params=PASS loader=PASS

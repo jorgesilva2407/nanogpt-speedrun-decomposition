@@ -1,0 +1,67 @@
+# Preset r18 = record #18 (lower logit softcap from 30 to 15), 2025-01-04.
+# Snapshot: work/records/r18/log_source/train_gpt.py (== 45544f5, identical). The snapshot diff from r17 also carries
+# Keller's 2024-12-13..2025-01-01 rewrite (see ledger/r18.yaml): fp32_small_params, code_opts_18, frac schedule, loader.
+# Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
+# Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
+preset: r18
+flags:
+  flex_kernel: true
+  long_context: true
+  doc_masking: true
+  rotary_variant: v17
+  window_warmup: true
+  value_embeds: true
+  ve_unet: true
+  ve_lambdas2: true
+  code_opts_15: true
+  muon_ema_momentum: true
+  blockmask_manual: true
+  ve_split: true
+  block_window: true
+  blockmask_separate: true
+  code_opts_16: true
+  ve_sparsify: true
+  rope_half_truncate: true
+  drop_attn_layer: true
+  code_opts_17: false          # #18 drops #17's allocator setting (and enable_gqa stays off)
+  fp32_small_params: true
+  code_opts_18: true
+hparams:
+  input_bin: data/fineweb10B/fineweb_train_*.bin
+  input_val_bin: data/fineweb10B/fineweb_val_*.bin
+  global_batch_tokens: 524288   # record: batch_size 8 sequences x sequence_length 64*1024
+  micro_batch_tokens: 65536     # record: one sequence of 64*1024 per device
+  sequence_length: 1024         # unused at r12 (long_context: one 64K row per micro-batch); the r11 value
+  loader_shard_rule: global_ge_plus1  # record: one global test `cp + batch_size + 1 >= len` before each read
+  loader_replay_first_round: false  # record: no train_loader.reset() before the loop
+  num_iterations: 1390
+  warmup_iters: 0
+  lr_schedule_form: frac        # record: get_lr with cooldown_frac
+  cooldown_frac: 0.4
+  warmdown_iters: 600           # unused (lr_schedule_form frac); the r17 value
+  weight_decay: 0
+  val_loss_every: 125
+  val_tokens: 10485760
+  save_every: 0
+  vocab_size: 50304
+  embed_vocab_size: 50304      # record: GPT(vocab_size=50304, ...)
+  n_layer: 12
+  n_head: 6
+  n_embd: 768
+  logit_softcap: 15            # record: logits = 15 * torch.tanh(logits / 15)
+  attn_window: 1024        # unused at r13 (window_warmup supplies the window); the r12 value
+  lr_embed: 0.6
+  lr_head: 0.008
+  lr_muon: 0.05
+  lr_scalar: 0.04
+  adam_betas: [0.8, 0.95]
+  muon_momentum: 0.95
+  muon_momentum_warmup_start: 0.85
+  muon_momentum_warmup_end: 0.95
+  muon_momentum_warmup_steps: 300
+  window_warmup_start: 64     # record writes 128 = start + quantum and 1856 = end + quantum
+  window_warmup_end: 1792
+  window_warmup_quantum: 64
+  dropped_attn_layer: 7        # record: use_attn=(i != 7)
+  ve_sparse_tables: 3          # record: [ve[0], ve[1], ve[2], None, None, None, None, None, None, ve[0], ve[1], ve[2]]
+  window_block_formula: r18    # record: int(((1 - x) * 128 + x * 1856) // 128)
