@@ -9,6 +9,11 @@ flags:
   rotary_variant: v11
   window_warmup: false
   value_embeds: false
+  ve_unet: false
+  ve_lambdas2: false
+  code_opts_15: false
+  muon_ema_momentum: false
+  blockmask_manual: false
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin

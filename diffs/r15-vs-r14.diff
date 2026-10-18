@@ -1,0 +1,451 @@
+# diff r15 vs r14
+# part 1: log-embedded training script (records/r14/log_source/train_gpt2.py -> records/r15/log_source/train_gpt2.py), -U1
+# part 2: all other tree files (records/r14/tree -> records/r15/tree), -U3; excluded: records/**, tree copies of train_gpt2.py, train_gpt.py
+--- a/train_gpt2.py
++++ b/train_gpt2.py
+@@ -5,8 +5,6 @@
+ import uuid
+-import glob
+ import time
+-import contextlib
+ from dataclasses import dataclass
+-
+-import numpy as np
++from pathlib import Path
++
+ import torch
+@@ -18,5 +16,3 @@
+ # Use of FlexAttention contributed by @KoszarskyB
+-from torch.nn.attention.flex_attention import flex_attention, create_block_mask
+-flex_attention = torch.compile(flex_attention, dynamic=False)
+-create_block_mask = torch.compile(create_block_mask, dynamic=False)
++from torch.nn.attention.flex_attention import BlockMask, flex_attention
+ 
+@@ -83,42 +79,59 @@
+                  backend='newtonschulz5', backend_steps=5):
++        self.num_process = int(os.environ['WORLD_SIZE'])
++        self.rank = int(os.environ["RANK"])
+         defaults = dict(lr=lr, momentum=momentum, nesterov=nesterov, backend=backend, backend_steps=backend_steps)
+-        super().__init__(params, defaults)
++        params: "list[torch.Tensor]" = list(params)
++        assert all(isinstance(p, torch.Tensor) for p in params)
++        sizes = {p.numel() for p in params}
++        param_groups = [
++            {
++                "params": [p for p in params if p.numel() == size],
++                "update_buffer": [
++                    torch.empty(size, device="cuda", dtype=torch.bfloat16)
++                    for _ in range(self.num_process)
++                ],
++            }
++            for size in sizes
++        ]
++        super().__init__(param_groups, defaults)
+ 
+     def step(self):
+-
+         for group in self.param_groups:
+-
+-            lr = group['lr']
+-            momentum = group['momentum']
+-            zeropower_backend = zeropower_backends[group['backend']]
+-
++            lr: float = group["lr"]
++            momentum: float = group["momentum"]
++            nesterov: bool = group["nesterov"]
++            zeropower_backend = zeropower_backends[group["backend"]]
++            backend_steps: int = group["backend_steps"]
++            update_buffers: "list[torch.Tensor]" = group["update_buffer"]
+             # generate weight updates in distributed fashion
+-            total_params = sum(p.numel() for p in group['params'])
+-            updates_flat = torch.zeros(total_params, device='cuda', dtype=torch.bfloat16)
+-            curr_idx = 0
+-            for i, p in enumerate(group['params']):
+-                # luckily this will perfectly distribute a transformer with multiple of 4 layers to 8 GPUs
+-                if i % int(os.environ['WORLD_SIZE']) == int(os.environ['RANK']):
+-                    g = p.grad
+-                    assert g is not None
+-                    state = self.state[p]
+-                    if 'momentum_buffer' not in state:
+-                        state['momentum_buffer'] = torch.zeros_like(g)
+-                    buf = state['momentum_buffer']
+-                    buf.mul_(momentum).add_(g)
+-                    g = g.add(buf, alpha=momentum) if group['nesterov'] else buf
+-                    g = zeropower_backend(g, steps=group['backend_steps'])
+-                    g *= max(1, g.size(0)/g.size(1))**0.5
+-                    updates_flat[curr_idx:curr_idx+p.numel()] = g.flatten()
+-                curr_idx += p.numel()
+-
+-            # sync updates across devices. we are not memory-constrained so can do this simple deserialization
+-            dist.all_reduce(updates_flat, op=dist.ReduceOp.SUM)
+-
+-            # deserialize and apply updates
+-            curr_idx = 0
+-            for p in group['params']:
+-                g = updates_flat[curr_idx:curr_idx+p.numel()].view_as(p.data).type_as(p.data)
+-                p.data.add_(g, alpha=-lr)
+-                curr_idx += p.numel()
++            params: "list[torch.Tensor]" = group["params"]
++            assert len(params) % self.num_process == 0
++            handle = None
++            params_world = None
++            def update_prev():
++                if params_world is None:
++                    return
++                assert handle is not None
++                handle.wait()
++                for p_world, g_world in zip(params_world, update_buffers):
++                    p_world.data.add_(
++                        g_world.view_as(p_world),
++                        alpha=-lr * max(1, p_world.size(0) / p_world.size(1)) ** 0.5,
++                    )
++            for base_i in range(len(params))[::self.num_process]:
++                p = params[base_i + self.rank]
++                g = p.grad
++                assert g is not None
++                state = self.state[p] 
++                if "momentum_buffer" not in state:
++                    state["momentum_buffer"] = torch.zeros_like(g)
++                buf: torch.Tensor = state["momentum_buffer"]
++                buf.lerp_(g, 1 - momentum)
++                g = g.lerp_(buf, momentum) if nesterov else buf
++                g = zeropower_backend(g, steps=backend_steps).flatten()
++                update_prev()
++                handle = dist.all_gather(update_buffers, g, async_op=True)
++                params_world = params[base_i : base_i + self.num_process]
++            update_prev()
++
+ 
+@@ -172,3 +185,3 @@
+         # value residual lambda
+-        self.lamb = nn.Parameter(torch.tensor(0.5)) # @Grad62304977
++        self.lambdas = nn.Parameter(torch.tensor([0.5, 0.5])) # @Grad62304977
+         # rotary embeddings
+@@ -179,9 +192,9 @@
+ 
+-    def forward(self, x, vi, block_mask):
++    def forward(self, x: torch.Tensor, vi: torch.Tensor, block_mask: BlockMask) -> torch.Tensor:
+         B, T = x.size(0), x.size(1) # batch size, sequence length
+         assert B == 1, "Must use batch size = 1 for FlexAttention"
+-        q = self.c_q(x).view(B, T, self.n_head, -1)
+-        k = self.c_k(x).view(B, T, self.n_head, -1)
+-        v = self.c_v(x).view(B, T, self.n_head, -1)
+-        v = (1 - self.lamb) * v + self.lamb * vi.view_as(v) # @Grad62304977
++        q: torch.Tensor = self.c_q(x).view(B, T, self.n_head, -1)
++        k: torch.Tensor = self.c_k(x).view(B, T, self.n_head, -1)
++        v: torch.Tensor = self.c_v(x).view(B, T, self.n_head, -1)
++        v = self.lambdas[0] * v + self.lambdas[1] * vi.view_as(v) # @Grad62304977
+         q, k = norm(q), norm(k) # QK norm suggested by @Grad62304977
+@@ -195,3 +208,3 @@
+ 
+-    def __init__(self, dim):
++    def __init__(self, dim: int):
+         super().__init__()
+@@ -201,3 +214,3 @@
+ 
+-    def forward(self, x):
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
+         x = self.c_fc(x)
+@@ -215,3 +228,3 @@
+ 
+-    def forward(self, x, vi, x0, block_mask):
++    def forward(self, x: torch.Tensor, vi: torch.Tensor, x0: torch.Tensor, block_mask: BlockMask) -> torch.Tensor:
+         x = self.lambdas[0] * x + self.lambdas[1] * x0
+@@ -230,2 +243,3 @@
+     n_embd : int = 768
++    lm_head_softcap : int = 30
+ 
+@@ -233,4 +247,6 @@
+ 
+-    def __init__(self, config):
++    def __init__(self, config: GPTConfig):
+         super().__init__()
++        self.n_layer = config.n_layer
++        self.lm_head_softcap = config.lm_head_softcap
+ 
+@@ -245,3 +261,4 @@
+             # token value embeddings by @KoszarskyB - inspired by @Grad62304977's value residual learning
+-            vte = nn.Embedding(config.vocab_size, config.n_embd*12),
++            # U-net structure on token value embeddings by @leloykun
++            vte = nn.Embedding(config.vocab_size, config.n_embd*self.num_encoder_layers),
+             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+@@ -251,13 +268,29 @@
+ 
+-    def forward(self, idx, target, attn_blocksize):
+-
++    def forward(self, idx: torch.Tensor, target: torch.Tensor, sliding_window: torch.Tensor) -> torch.Tensor:
++        BLOCK_SIZE = 128
++        assert idx.ndim == 1
+         docs = (idx == 50256).cumsum(0)
+-        def document_causal_mask(b, h, q_idx, kv_idx):
+-          causal_mask = q_idx >= kv_idx
+-          document_mask = docs[q_idx] == docs[kv_idx]
+-          window_mask = q_idx - kv_idx < attn_blocksize
+-          return causal_mask & document_mask & window_mask
++        docs_low = docs.reshape(-1, BLOCK_SIZE)[:, 0].contiguous()
++        docs_high = docs.reshape(-1, BLOCK_SIZE)[:, -1].contiguous()
++        def document_sliding_window_causal(b, h, q_idx, kv_idx):
++            causal_mask = q_idx >= kv_idx
++            document_mask = docs[q_idx] == docs[kv_idx]
++            window_mask = q_idx - kv_idx < sliding_window
++            return causal_mask & document_mask & window_mask
+ 
+         S = len(idx)
+-        block_mask = create_block_mask(document_causal_mask, None, None, S, S, device="cuda", _compile=True)
++        def create_sliding_window_causal_mask(S: int, sliding_window: torch.Tensor):
++            kv_idx = block_idx = torch.arange(S // BLOCK_SIZE, dtype=torch.int32, device="cuda")
++            q_idx = block_idx[:, None]
++            causal_mask = q_idx >= kv_idx
++            document_mask = (docs_low[q_idx] <= docs_high[kv_idx]) & (docs_low[kv_idx] <= docs_high[q_idx])
++            window_mask = q_idx - kv_idx < ((sliding_window + BLOCK_SIZE - 1) // BLOCK_SIZE)
++            dense_mask = causal_mask & document_mask & window_mask
++            dense_mask = dense_mask.to(torch.int32)
++            num_blocks = dense_mask.sum(dim=-1).to(torch.int32)
++            indices = torch.argsort(dense_mask, dim=-1, descending=True, stable=True).to(torch.int32)
++            num_blocks = num_blocks[None, None, :].contiguous()
++            indices = indices[None, None, :].contiguous()
++            return BlockMask.from_kv_blocks(num_blocks, indices, BLOCK_SIZE=BLOCK_SIZE, mask_mod=document_sliding_window_causal)
++        block_mask = create_sliding_window_causal_mask(S, sliding_window)
+ 
+@@ -267,3 +300,3 @@
+         x0 = x
+-        vi = self.transformer.vte(idx[None]).chunk(12, dim=-1)
++        vi = self.transformer.vte(idx[None]).chunk(self.num_encoder_layers, dim=-1)
+ 
+@@ -278,3 +311,4 @@
+             x = x + self.skip_weights[i] * skip_connections.pop()
+-            x = self.transformer.h[self.num_encoder_layers + i](x, vi[self.num_encoder_layers+i], x0, block_mask)
++            # U-net structure on token value embeddings by @leloykun
++            x = self.transformer.h[self.num_encoder_layers + i](x, vi[self.num_encoder_layers-1-i], x0, block_mask)
+ 
+@@ -282,3 +316,3 @@
+         logits = self.lm_head(x)
+-        logits = 30 * torch.tanh(logits / 30) # @Grad62304977
++        logits = self.lm_head_softcap * torch.tanh(logits / self.lm_head_softcap) # @Grad62304977
+         logits = logits.float()
+@@ -290,27 +324,16 @@
+ 
+-def _peek_data_shard(filename):
++def _peek_data_shard(file: Path):
+     # only reads the header, returns header data
+-    with open(filename, "rb") as f:
+-        # first read the header, which is 256 int32 integers (4 bytes each)
+-        header = np.frombuffer(f.read(256*4), dtype=np.int32)
+-    if header[0] != 20240520:
+-        print("ERROR: magic number mismatch in the data .bin file!")
+-        print("---> HINT: Are you passing in a correct file with --input_bin?")
+-        print("---> HINT: Dataset encoding changed recently, re-run data prepro or refer again to README")
+-        print("---> HINT: For example re-run: `python dev/data/tinyshakespeare.py`, then re-try")
+-        exit(1)
++    # header is 256 int32
++    header = torch.from_file(f"{file}", False, 256, dtype=torch.int32)
++    assert header[0] == 20240520, "magic number mismatch in the data .bin file"
+     assert header[1] == 1, "unsupported version"
+-    ntok = header[2] # number of tokens (claimed)
+-    return ntok # for now just return the number of tokens
+-
+-def _load_data_shard(filename):
+-    with open(filename, "rb") as f:
+-        # first read the header, which is 256 int32 integers (4 bytes each)
+-        header = np.frombuffer(f.read(256*4), dtype=np.int32)
+-        assert header[0] == 20240520, "magic number mismatch in the data .bin file"
+-        assert header[1] == 1, "unsupported version"
+-        ntok = header[2] # number of tokens (claimed)
+-        # the rest of it are tokens, stored as uint16
+-        tokens = np.frombuffer(f.read(), dtype=np.uint16)
+-    assert len(tokens) == ntok, "number of tokens read does not match header?"
++    return int(header[2]) # number of tokens (claimed)
++
++def _load_data_shard(file: Path, ntok: int):
++    with file.open("rb") as f:
++        tokens = torch.empty(ntok, dtype=torch.uint16, pin_memory=True)
++        f.seek(256 * 4)
++        nbytes = f.readinto(tokens.numpy())
++        assert nbytes == 2 * ntok, "number of tokens read does not match header?"
+     return tokens
+@@ -324,3 +347,3 @@
+         # glob files that match the pattern
+-        self.files = sorted(glob.glob(filename_pattern))
++        self.files = sorted(Path.cwd().glob(filename_pattern))
+         assert len(self.files) > 0, f"did not find any files that match the pattern {filename_pattern}"
+@@ -328,8 +351,5 @@
+         # load and validate all data shards, count number of tokens in total
+-        ntok_total = 0
+-        for fname in self.files:
+-            shard_ntok = _peek_data_shard(fname)
+-            assert shard_ntok >= num_processes * T + 1
+-            ntok_total += int(shard_ntok)
+-        self.ntok_total = ntok_total
++        self.ntoks = [_peek_data_shard(file) for file in self.files]
++        assert min(self.ntoks) >= num_processes * T + 1
++        self.ntok_total = sum(self.ntoks)
+ 
+@@ -344,3 +364,3 @@
+         self.current_position = self.process_rank * self.T
+-        self.tokens = _load_data_shard(self.files[self.current_shard])
++        self.tokens = _load_data_shard(self.files[self.current_shard], self.ntoks[self.current_shard])
+ 
+@@ -349,10 +369,11 @@
+         buf = self.tokens[self.current_position:self.current_position+self.T+1]
+-        buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
+-        x = buf[:-1] # inputs
+-        y = buf[1:] # targets
++        # host side async is sufficient;
++        # no performance improvement was observed when introducing a separate stream.
++        x = buf[:-1].to(device="cuda", dtype=torch.int32, non_blocking=True) # inputs
++        y = buf[1:].to(device="cuda", dtype=torch.int64, non_blocking=True) # targets
+         # advance current position and load next shard if necessary
+         self.current_position += batch_size
+-        if self.current_position + batch_size >= len(self.tokens):
++        if self.current_position + batch_size + 1 >= len(self.tokens):
+             self.advance()
+-        return x.cuda(), y.cuda()
++        return x, y
+ 
+@@ -369,3 +390,3 @@
+     sequence_length : int = 64*1024 # sequence length, in tokens
+-    num_iterations : int = 1530 # number of iterations to run
++    num_iterations : int = 1480 # number of iterations to run
+     warmup_iters : int = 0
+@@ -395,3 +416,3 @@
+     logdir = 'logs/%s/' % run_id
+-    os.makedirs(logdir, exist_ok=True)
++    # os.makedirs(logdir, exist_ok=True)
+     logfile = 'logs/%s.txt' % run_id
+@@ -424,2 +445,3 @@
+ train_accumulation_steps = args.batch_size // ddp_world_size
++assert train_accumulation_steps == 1
+ 
+@@ -455,3 +477,3 @@
+ optimizer3 = Muon(matrix_params, lr=0.05, momentum=0.95)
+-optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.8, 0.95), fused=True) # note that this learning rate is neither sensitive nor tuned
++optimizer4 = torch.optim.Adam(scalar_params, lr=0.04, betas=(0.8, 0.95), fused=True)
+ optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
+@@ -472,2 +494,4 @@
+ 
++sliding_window_size = torch.tensor(64, dtype=torch.int32, device="cuda")
++sw_size_prev = 64
+ # Start training loop
+@@ -476,3 +500,3 @@
+ torch.cuda.synchronize()
+-t0 = time.time()
++t0 = time.perf_counter()
+ # begin training
+@@ -485,7 +509,10 @@
+         training_time_ms = 0
+-        t0 = time.time()
++        t0 = time.perf_counter()
+     timed_steps = float('nan') if step <= 11 else (step - 10) + 1 # <= 11 to avoid bug in val
+ 
+-    # Set the attention blocksize for the current step, in chunks of 64. By @fernbear.bsky.social
+-    attn_blocksize = torch.tensor(64*((step/args.num_iterations * (1792 - 64) + 64)//64), dtype=torch.int, device='cuda')
++    # Set the sliding window size for the current step, in chunks of 64. By @fernbear.bsky.social
++    sw_size =  64 * int((64 + (1792 - 64) * step / args.num_iterations) // 64)
++    if sw_size != sw_size_prev:
++        sliding_window_size.copy_(sw_size, non_blocking=True)
++        sw_size_prev = sw_size
+ 
+@@ -495,3 +522,3 @@
+         torch.cuda.synchronize()
+-        training_time_ms += 1000 * (time.time() - t0)
++        training_time_ms += 1000 * (time.perf_counter() - t0)
+         # run validation batches
+@@ -503,3 +530,3 @@
+                 x_val, y_val = val_loader.next_batch()
+-                val_loss += model(x_val, y_val, attn_blocksize=attn_blocksize)
++                val_loss += model(x_val, y_val, sliding_window=sliding_window_size)
+         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
+@@ -510,3 +537,3 @@
+         torch.cuda.synchronize()
+-        t0 = time.time()
++        t0 = time.perf_counter()
+ 
+@@ -515,9 +542,9 @@
+         torch.cuda.synchronize()
+-        training_time_ms += 1000 * (time.time() - t0)
++        training_time_ms += 1000 * (time.perf_counter() - t0)
+         # save the state of the training process
+         log = dict(step=step, code=code, model=raw_model.state_dict(), optimizers=[opt.state_dict() for opt in optimizers])
+-        torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
++        # torch.save(log, 'logs/%s/state_step%06d.pt' % (run_id, step))
+         # start the clock again
+         torch.cuda.synchronize()
+-        t0 = time.time()
++        t0 = time.perf_counter()
+ 
+@@ -532,17 +559,11 @@
+     model.train()
+-    for i in range(1, train_accumulation_steps+1):
+-        ctx = model.no_sync() if i < train_accumulation_steps else contextlib.nullcontext()
+-        with ctx: # there's no need to sync gradients every accumulation step
+-            # forward pass
+-            loss = model(x, y, attn_blocksize=attn_blocksize)
+-            # advance the dataset for the next batch
+-            x, y = train_loader.next_batch()
+-            # backward pass
+-            loss.backward()
+-        train_loss = loss.detach()
+-    for p in model.parameters():
+-        p.grad /= train_accumulation_steps
++    loss = model(x, y, sliding_window=sliding_window_size)
++    loss.backward()
++    del loss
++    # advance the dataset for the next batch
++    x, y = train_loader.next_batch()
+     # momentum warmup for Muon
+     frac = min(step/300, 1)
+-    optimizer3.param_groups[0]['momentum'] = (1 - frac) * 0.85 + frac * 0.95
++    for group in optimizer3.param_groups:
++        group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
+     # step the optimizers and schedulers
+@@ -555,6 +576,4 @@
+     # everything that follows now is just diagnostics, prints, logging, etc.
+-
+-    #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
+-    approx_time = training_time_ms + 1000 * (time.time() - t0)
+-    print0(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
++    approx_time = training_time_ms + 1000 * (time.perf_counter() - t0)
++    print0(f"step:{step+1}/{args.num_iterations} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
+ 
+--- a/README.md
++++ b/README.md
+@@ -2,8 +2,8 @@
+ 
+ This is a modified variant of the [PyTorch GPT-2 trainer](https://github.com/karpathy/llm.c/blob/7b929300217ff1a974b63791a228928b39b26409/train_gpt2.py) from
+ Andrej Karpathy's [llm.c](https://github.com/karpathy/llm.c) repo, which attains the same final validation loss in:
+-* 0.9B tokens instead of 10B
+-* 4.7 minutes on 8xH100 instead of 45
++* 0.75B tokens instead of 10B
++* 4.4 minutes on 8xH100 instead of 45
+ 
+ It uses the following techniques:
+ * Modernized architecture: Rotary embeddings, QK-Norm, and ReLU^2.
+@@ -14,6 +14,7 @@
+ * Momentum warmup.
+ * Tanh soft logit capping (following Gemma 2).
+ * FlexAttention with window size warmup.
++* Extra embedding layers which are fed into intermediate layers.
+ 
+ The training has attained this speed due to the contributions of meself, [@Grad62304977](https://x.com/Grad62304977),
+ [@jxbz](https://x.com/jxbz), [@bozavlado](https://x.com/bozavlado), [@brendanh0gan](https://x.com/brendanh0gan),
+@@ -32,10 +33,10 @@
+ ./run.sh
+ ```
+ 
+-The result will be a transformer with 124M active parameters trained for 1750 steps on 0.9B tokens of Fineweb [1], achieving ~3.278 mean validation loss (w/ up to 0.005 inter-run stddev).
++The result will be a transformer with 124M active parameters trained for 1430 steps on 0.75B tokens of Fineweb [1], achieving ~3.278 mean validation loss (w/ up to 0.005 inter-run stddev).
+ For comparison, the default llm.c PyTorch trainer yields [>3.28 validation loss after training for 19560 steps on 10B tokens](https://github.com/karpathy/llm.c/discussions/481#:~:text=By%20the%20end%20of%20the%20optimization%20we%27ll%20get%20to%20about%203.29).
+ 
+-**Note: torch.compile will take a while on the first run.**
++**Note: torch.compile will take a long time on the first run.**
+ 
+ ## Running it on fewer GPUs or with less memory
+ 
+@@ -77,6 +78,7 @@
+ 11 | 7.2 minutes | [U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan
+ 12 | 5.03 minutes | [FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](./records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB
+ 13 | 4.66 minutes | [Attention window warmup](https://x.com/hi_tysam/status/1860851011797053450) | 11/24/24 | [log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social
++14 | 4.41 minutes | [Value Embeddings]() | 12/04/24 | [log](./records/120424_ValueEmbed) | @KoszarskyB
+ 
+ Notes:
+ * For the llm.c baseline: The 90 minute time is on 8xA100; it's 45 minutes on 8xH100. This baseline is essentially a hardware-optimized GPT-2-small replication using better training data.
