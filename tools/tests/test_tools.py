@@ -124,3 +124,28 @@ def test_loader_equivalence_negative_control(tmp_path):
                         os.path.join(root, 'train_flagged.py'), str(bad), '--protocol', 'r11', '--steps', '50'],
                        capture_output=True, text=True)
     assert r.returncode == 1 and 'differ from the 8-GPU record stream: 1' in r.stdout
+
+def test_param_inventory_plain_tensor_attribute_is_not_a_parameter(tmp_path):
+    src = textwrap.dedent('''\
+        import torch
+        from torch import nn
+        def helper(d):
+            return torch.cat([torch.linspace(0.0, 1.0, steps=d // 4), torch.zeros(d // 4)])
+        class R(nn.Module):
+            def __init__(self, d):
+                super().__init__()
+                self.inv_freq = 1.0 / (10000 ** (torch.arange(0, d, 2).float() / d))   # plain attribute
+                t = torch.arange(16)
+                th = torch.einsum("i, j -> ij", t, helper(d))
+                self.cos = nn.Buffer(th.cos(), persistent=False)
+                self.w = nn.Parameter(torch.ones(3))
+        class GPT(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.r = R(8)
+        model = GPT()
+        ''')
+    p = tmp_path / 's.py'; p.write_text(src)
+    params, buffers = pinv.inventory(str(p))
+    assert params == [('r.w', (3,))]
+    assert buffers == [('r.cos', (16, 4))]

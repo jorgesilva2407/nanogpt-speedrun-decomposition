@@ -1,0 +1,445 @@
+record: 17
+title: Sparsify value embeddings, improve rotary embeddings, drop an attn layer
+snapshot_from: r16
+snapshot_to: r17
+diff: diffs/r17-vs-r16.diff
+tree_note: tree context e76ab99 (master HEAD 2024-12-17..12-31); its README differs from r16's tree README only as listed
+hunks:
+- id: H001
+  file: train_gpt2.py
+  header: '@@ -2,7 +2,9 @@'
+  description: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True set before torch is imported; import order
+  category:
+  - throughput-only
+  - cosmetic
+  flag: code_opts_17
+  provenance: direct
+  bundled: true
+  numerics: identical
+  note: allocator configuration (memory fragmentation); the flagged trainer reads the config's flags before importing torch to set it at the same
+    point
+- id: H002
+  file: train_gpt2.py
+  header: '@@ -11,8 +13,10 @@'
+  description: imports reordered; Tensor imported; FlexAttention credit comment
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: imports/comments
+- id: H003
+  file: train_gpt2.py
+  header: '@@ -22,3 +26,3 @@'
+  description: return annotation on zeropower_via_newtonschulz5
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H004
+  file: train_gpt2.py
+  header: '@@ -71,7 +75,5 @@'
+  description: Muon uses the module-level world_size/rank; params list via unpacking
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same values
+- id: H005
+  file: train_gpt2.py
+  header: '@@ -82,3 +84,3 @@'
+  description: update buffers sized by module-level world_size
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same value
+- id: H006
+  file: train_gpt2.py
+  header: '@@ -90,5 +92,3 @@'
+  description: blank lines
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H007
+  file: train_gpt2.py
+  header: '@@ -97,6 +97,5 @@'
+  description: divisibility assert removed (len(params) % world_size); annotations
+  category:
+  - infra/logging
+  - cosmetic
+  flag: none
+  provenance: direct
+  bundled: true
+  numerics: identical
+  flag_reason: 'see H008: the uneven split replaces the assert'
+- id: H008
+  file: train_gpt2.py
+  header: '@@ -109,20 +108,24 @@'
+  description: Muon round loop supports a last round with fewer parameters than ranks (a rank without a parameter sends its stale buffer, which
+    zip() never applies); optional per-parameter lr multiplier getattr(p, 'lr', 1.0)
+  category:
+  - infra/logging
+  - cosmetic
+  flag: none
+  provenance: direct
+  bundled: true
+  numerics: identical
+  flag_reason: 'generalisation that is exactly the r16 computation whenever len(params) % world_size == 0 (the only case r16 accepted). Needed
+    by drop_attn_layer: 44 square matrices at world_size 8. No parameter has an ''lr'' attribute in any record, so param_lr == 1.0. The flagged
+    trainer''s all_gather path always has the uneven branch.'
+- id: H009
+  file: train_gpt2.py
+  header: '@@ -136,3 +139,2 @@'
+  description: blank line
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H010
+  file: train_gpt2.py
+  header: '@@ -141,24 +143,17 @@'
+  description: 'CastedLinear weight.type_as(x); Rotary rewritten: half-truncated frequencies (1/1024)**linspace(0,1,dim/4) followed by dim/4 zeros;
+    cos/sin for all 65,536 positions precomputed in fp32 as nn.Buffer (cast to bf16 by the global model.bfloat16()); rotation in fp32'
+  category:
+  - model-mechanism
+  - cosmetic
+  flag:
+  - rope_half_truncate
+  - rotary_variant
+  provenance: direct
+  bundled: true
+  numerics: changed
+  parts:
+  - what: 'frequency spectrum: 32 rotating pairs with periods 2*pi .. 2*pi*1024 and 32 non-rotating pairs (base 10000, 64 pairs before)'
+    flag: rope_half_truncate
+    category: model-mechanism
+  - what: 'implementation: tables from fp32 angles (then bf16 storage under the global cast) instead of bf16 angles; the rotation itself in fp32;
+      rotary_variant v14 -> v17'
+    flag: rotary_variant
+    category: model-mechanism
+  - what: weight.type_as(x) == weight.to(x.dtype)
+    flag: none
+    category: cosmetic
+  note: The README's 'improve rotary embeddings' bundles a new frequency spectrum (arm-level mechanism) with a precision/implementation change
+    (non-arm). They are separate flags; rope_half_truncate is also defined for the older variants (non-historical combinations).
+- id: H011
+  file: train_gpt2.py
+  header: '@@ -169,3 +164,3 @@'
+  description: annotations (CausalSelfAttention.__init__)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H012
+  file: train_gpt2.py
+  header: '@@ -181,3 +176,3 @@'
+  description: annotations (vi may be None)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H013
+  file: train_gpt2.py
+  header: '@@ -187,6 +182,9 @@'
+  description: layers without a value embedding use v = lambdas[0] * v; flex_attention without enable_gqa
+  category:
+  - model-mechanism
+  - throughput-only
+  flag:
+  - ve_sparsify
+  - code_opts_17
+  provenance: direct
+  bundled: true
+  numerics: changed
+  parts:
+  - what: vi is None -> v = l0 * v
+    flag: ve_sparsify
+    category: model-mechanism
+  - what: enable_gqa=True removed again (no-op with 6 query and 6 key/value heads)
+    flag: code_opts_17
+    category: throughput-only
+    numerics: identical
+- id: H014
+  file: train_gpt2.py
+  header: '@@ -211,7 +209,9 @@'
+  description: 'Block(config, layer_idx): layer 7 is built without attention'
+  category:
+  - capacity-change
+  - model-mechanism
+  flag:
+  - drop_attn_layer
+  - config:dropped_attn_layer
+  provenance: direct
+  bundled: false
+  numerics: changed
+  coupled:
+  - 'dropped_attn_layer: mechanically coupled to drop_attn_layer (7: the second decoder layer)'
+  note: removes 2,359,298 parameters (q, k, v, proj, lambdas) and that layer's init draws
+- id: H015
+  file: train_gpt2.py
+  header: '@@ -219,3 +219,4 @@'
+  description: Block.forward skips attention in layer 7
+  category: capacity-change
+  flag: drop_attn_layer
+  provenance: direct
+  bundled: false
+  numerics: changed
+- id: H016
+  file: train_gpt2.py
+  header: '@@ -229,8 +230,13 @@'
+  description: 3 value-embedding tables; layers 0-2 and 9-11 get tables 0,1,2, layers 3-8 get none (012...012)
+  category:
+  - model-mechanism
+  - capacity-change
+  flag:
+  - ve_sparsify
+  - config:ve_sparse_tables
+  provenance: direct
+  bundled: false
+  numerics: changed
+  coupled:
+  - 've_sparse_tables: mechanically coupled to ve_sparsify (3)'
+  note: value-embedding parameters 231.8M -> 115.8M (3 x 50257 x 768 with H017's vocabulary)
+- id: H017
+  file: train_gpt2.py
+  header: '@@ -243,3 +249,3 @@'
+  description: GPTConfig.vocab_size 50304 -> 50257 (token and value embeddings get 50,257 rows)
+  category: capacity-change
+  flag: config:embed_vocab_size
+  provenance: direct
+  bundled: false
+  numerics: changed
+  note: rows >= 50257 are never indexed by GPT-2 token ids, so they never receive gradient; the change is nominal for the function but removes
+    47 rows x 768 per table from the init RNG stream (later draws shift) and from the parameter count
+- id: H018
+  file: train_gpt2.py
+  header: '@@ -247,2 +253,7 @@'
+  description: GPTConfig.vocab_size_next_multiple_of(128) for the head
+  category: capacity-change
+  flag: config:embed_vocab_size
+  provenance: direct
+  bundled: false
+  numerics: identical
+  note: lm_head keeps 50,304 rows (next multiple of 128 of 50,257)
+- id: H019
+  file: train_gpt2.py
+  header: '@@ -261,3 +272,3 @@'
+  description: blocks built with their layer index
+  category: cosmetic
+  flag: drop_attn_layer
+  provenance: direct
+  bundled: false
+  numerics: identical
+- id: H020
+  file: train_gpt2.py
+  header: '@@ -265,3 +276,3 @@'
+  description: lm_head rows from vocab_size_next_multiple_of(128) (= 50304)
+  category: cosmetic
+  flag: config:embed_vocab_size
+  provenance: direct
+  bundled: false
+  numerics: identical
+- id: H021
+  file: train_gpt2.py
+  header: '@@ -270,5 +281,5 @@'
+  description: annotations (GPT.forward)
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H022
+  file: train_gpt2.py
+  header: '@@ -284,4 +295,4 @@'
+  description: trailing whitespace; annotation
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace/annotation
+- id: H023
+  file: train_gpt2.py
+  header: '@@ -290,3 +301,3 @@'
+  description: annotation
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: annotation
+- id: H024
+  file: train_gpt2.py
+  header: '@@ -302,3 +313,3 @@'
+  description: partial blocks as nonzero & ~full instead of nonzero ^ full
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: full is a subset of nonzero (strict causal, in-window, single-document pairs), so XOR equals AND-NOT
+- id: H025
+  file: train_gpt2.py
+  header: '@@ -410,3 +421,3 @@'
+  description: num_iterations 1480 -> 1490
+  category: hyperparameter/schedule
+  flag: config:num_iterations
+  provenance: direct
+  bundled: false
+  numerics: changed
+  coupled:
+  - 'num_iterations: co-tuned with #17 (+10 steps); warmdown_iters stays 600 (0.403 N)'
+- id: H026
+  file: train_gpt2.py
+  header: '@@ -421,7 +432,7 @@'
+  description: ddp_* variables renamed rank/local_rank/world_size
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: renames
+- id: H027
+  file: train_gpt2.py
+  header: '@@ -430,3 +441,3 @@'
+  description: master_process from rank
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: rename
+- id: H028
+  file: train_gpt2.py
+  header: '@@ -437,3 +448,3 @@'
+  description: logdir creation commented out
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: logging directory
+- id: H029
+  file: train_gpt2.py
+  header: '@@ -448,4 +459,4 @@'
+  description: console echo of log lines commented out
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: logging only
+- id: H030
+  file: train_gpt2.py
+  header: '@@ -456,2 +467,3 @@'
+  description: blank line
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: whitespace
+- id: H031
+  file: train_gpt2.py
+  header: '@@ -461,11 +473,11 @@'
+  description: val/accumulation/loader construction with renamed variables
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: renames; computed under the unified batch convention in the flagged trainer
+- id: H032
+  file: train_gpt2.py
+  header: '@@ -475,6 +487,3 @@'
+  description: model built with GPTConfig(vocab_size=50257, ...)
+  category: capacity-change
+  flag: config:embed_vocab_size
+  provenance: direct
+  bundled: false
+  numerics: changed
+- id: H033
+  file: train_gpt2.py
+  header: '@@ -484,6 +493,9 @@'
+  description: commented autotune options; annotations; DDP with renamed local_rank
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: comments/annotations/renames
+- id: H034
+  file: train_gpt2.py
+  header: '@@ -560,12 +572,12 @@'
+  description: final checkpoint save commented out
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: checkpoint I/O after the last step with the clock stopped
+- id: H035
+  file: train_gpt2.py
+  header: '@@ -586,3 +598,5 @@'
+  description: loss kept in a variable and deleted after backward
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: identical
+  flag_reason: same operations
+- id: H036
+  file: train_gpt2.py
+  header: '@@ -606,3 +620,6 @@'
+  description: peak memory allocated and reserved logged
+  category: infra/logging
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: logging only
+- id: H037
+  file: README.md
+  header: '@@ -2,12 +2,14 @@'
+  description: README headline numbers and framing
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation
+- id: H038
+  file: README.md
+  header: '@@ -35,7 +37,7 @@'
+  description: README step count 1430 -> 1480
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation
+- id: H039
+  file: README.md
+  header: '@@ -79,6 +81,7 @@'
+  description: 'README table row #16 (''MFU tweaks'')'
+  category: cosmetic
+  flag: none
+  provenance: direct
+  bundled: false
+  numerics: n/a
+  flag_reason: documentation

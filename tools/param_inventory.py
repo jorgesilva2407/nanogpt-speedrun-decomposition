@@ -21,14 +21,18 @@ class Opaque:
         return '<opaque>'
 OPAQUE = Opaque()
 
-class Param:
+class Tensor:
+    """A plain tensor value (shape only). Assigned to `self` it is an ordinary attribute, not a parameter."""
     def __init__(self, shape):
         self.shape = tuple(int(s) for s in shape)
     def numel(self):
         return math.prod(self.shape)
 
-class Buffer(Param):
-    pass
+class Param(Tensor):
+    """Created only by nn.Parameter(...) (or nn.Embedding/nn.Linear weights)."""
+
+class Buffer(Tensor):
+    """Created only by register_buffer(...) or nn.Buffer(...)."""
 
 class Module:
     def __init__(self, cls):
@@ -108,12 +112,12 @@ class Interp:
             return m
         if name in ('nn.Parameter', 'torch.nn.Parameter'):
             t = args[0]
-            if isinstance(t, Param):
+            if isinstance(t, Tensor):
                 return Param(t.shape)
             raise ValueError(f'nn.Parameter of non-tensor {t!r}')
         if name in ('nn.Buffer', 'torch.nn.Buffer'):
             t = args[0]
-            return Buffer(t.shape) if isinstance(t, Param) else Buffer(())
+            return Buffer(t.shape) if isinstance(t, Tensor) else Buffer(())
         node = self.classes.get(name)
         if node is None:
             return OPAQUE
@@ -188,7 +192,7 @@ class Interp:
                 if f == 'self.register_buffer':
                     name = self.eval(v.args[0], env)
                     t = self.eval(v.args[1], env)
-                    env['self'].children[name] = Buffer(t.shape if isinstance(t, Param) else ())
+                    env['self'].children[name] = Buffer(t.shape if isinstance(t, Tensor) else ())
                     return
             return  # other expression statements (zero_(), docstrings, asserts-as-calls) do not create params
         if isinstance(st, ast.Assign):
@@ -223,7 +227,7 @@ class Interp:
             env[target.id] = val
         elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == 'self':
             m = env['self']
-            if isinstance(val, (Module, Param)) or val is None:
+            if isinstance(val, (Module, Param, Buffer)) or val is None:
                 m.children[target.attr] = val
             else:
                 m.attrs[target.attr] = val
@@ -268,7 +272,12 @@ class Interp:
             return OPAQUE
         if isinstance(node, ast.BinOp):
             l, r = self.eval(node.left, env), self.eval(node.right, env)
-            if l is OPAQUE or r is OPAQUE or isinstance(l, Param) or isinstance(r, Param):
+            if isinstance(l, Tensor) or isinstance(r, Tensor):   # elementwise tensor op: shape of the tensor operand(s)
+                if isinstance(l, Tensor) and isinstance(r, Tensor):
+                    return Tensor(l.shape) if l.shape == r.shape else OPAQUE
+                t, o = (l, r) if isinstance(l, Tensor) else (r, l)
+                return Tensor(t.shape) if isinstance(o, (int, float)) else OPAQUE
+            if l is OPAQUE or r is OPAQUE:
                 return OPAQUE
             ops = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b,
                    ast.FloorDiv: lambda a, b: a // b, ast.Div: lambda a, b: a / b, ast.Mod: lambda a, b: a % b,
@@ -373,14 +382,48 @@ class Interp:
             shape = args[0] if len(args) == 1 and isinstance(args[0], (tuple, list)) else args
             if any(s is OPAQUE for s in shape):
                 return OPAQUE
-            return Param(shape)
+            return Tensor(shape)
+        if fname == 'torch.arange':
+            ints = [a for a in args if isinstance(a, int)]
+            if len(ints) == len(args) and 1 <= len(args) <= 3:
+                return Tensor((len(range(*args)),))
+            return OPAQUE
+        if fname == 'torch.linspace':
+            steps = kwargs.get('steps', args[2] if len(args) > 2 else None)
+            return Tensor((steps,)) if isinstance(steps, int) else OPAQUE
+        if fname == 'torch.cat':
+            parts = args[0] if args else []
+            if parts and all(isinstance(t, Tensor) and len(t.shape) == 1 for t in parts):
+                return Tensor((sum(t.shape[0] for t in parts),))
+            return OPAQUE
+        if fname == 'torch.einsum':
+            if args and args[0].replace(' ', '') == 'i,j->ij' and all(isinstance(t, Tensor) for t in args[1:3]):
+                return Tensor((args[1].shape[0], args[2].shape[0]))
+            return OPAQUE
+        if isinstance(node.func, ast.Attribute):
+            base = self.eval(node.func.value, env)
+            if isinstance(base, Tensor):
+                m = node.func.attr
+                if m in ('cos', 'sin', 'float', 'bfloat16', 'contiguous', 'clone', 'detach'):
+                    return Tensor(base.shape)
+                if m == 'new_zeros' and args and isinstance(args[0], int):
+                    return Tensor((args[0],))
+                return OPAQUE
         if fname == 'torch.tensor':
             v = args[0]
             if isinstance(v, (int, float)):
-                return Param(())
+                return Tensor(())
             if isinstance(v, list):
-                return Param((len(v),))
+                return Tensor((len(v),))
             return OPAQUE
+        if fname in self.funcs:   # module-level helper function: interpret its body
+            fn = self.funcs[fname]
+            e2 = self.bind(fn, args, kwargs)
+            try:
+                self.exec_block(fn.body, e2)
+            except ReturnSignal as r:
+                return r.value
+            return None
         f = self.eval(node.func, env)
         if isinstance(f, tuple) and f and f[0] == 'method':
             _, obj, fn = f

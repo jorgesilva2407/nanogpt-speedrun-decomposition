@@ -108,6 +108,11 @@ def extract(s: Snapshot):
     out['val_tokens'] = hp.get('val_tokens')
     out['save_every'] = hp.get('save_every')
     out['vocab_size'] = s.consts.get('num_vocab', g.get('vocab_size'))
+    out['embed_vocab_size'] = out['vocab_size']
+    if 'vocab_size_next_multiple_of(128)' in src:   # record #17: embeddings 50257 rows, lm_head next multiple of 128
+        out['embed_vocab_size'] = g.get('vocab_size')
+        v = out['embed_vocab_size']
+        out['vocab_size'] = next(x for x in range(v + 128)[::128] if x >= v)
     out['n_layer'], out['n_head'], out['n_embd'] = g.get('n_layer'), g.get('n_head'), g.get('n_embd')
     out['logit_softcap'] = find(src, r'logits = (\d+) \* torch\.tanh\(logits / \1\)', cast=int)
     if out['logit_softcap'] is None and 'self.lm_head_softcap * torch.tanh(logits / self.lm_head_softcap)' in src:
@@ -144,6 +149,10 @@ def extract(s: Snapshot):
     reset_before_loop = re.search(r'\ntrain_loader\.reset\(\)\n', src) is not None
     out['loader_replay_first_round'] = reset_before_loop
     out['attn_window'] = find(src, r'window_mask = q_idx - kv_idx < (\d+)\n', cast=int)
+    out['dropped_attn_layer'] = find(src, r'(?:if layer_idx != |use_attn=\(i != )(\d+)', cast=int)
+    out['ve_sparse_tables'] = None
+    if 'None, None, None' in src:
+        out['ve_sparse_tables'] = find(src, r'nn\.Embedding\([^)]*\)\s*for _ in range\((\d+)\)', cast=int)
     m = re.search(r'torch\.tensor\((\d+)\*\(\(step/args\.num_iterations \* \((\d+) - (\d+)\) \+ (\d+)\)//(\d+)\)', src)
     out['window_warmup_quantum'] = out['window_warmup_end'] = out['window_warmup_start'] = None
     if m:   # record #13: q*((step/N * (end - start) + start)//q)
@@ -189,6 +198,12 @@ def detect_flags(s: Snapshot):
     f['block_window'] = 'sliding_window_num_blocks' in src
     f['blockmask_separate'] = 'full_kv_num_blocks' in src
     f['code_opts_16'] = 'gradient_as_bucket_view=True' in src
+    f['ve_sparsify'] = 'None, None, None' in src
+    f['rope_half_truncate'] = '(1 / 1024) ** torch.linspace' in src
+    f['drop_attn_layer'] = re.search(r'(?:if layer_idx != |use_attn=\(i != )\d+', src) is not None
+    f['code_opts_17'] = 'expandable_segments:True' in src
+    if 'nn.Buffer(theta.cos()' in src:
+        f['rotary_variant'] = 'v17'
     return f
 
 def main():

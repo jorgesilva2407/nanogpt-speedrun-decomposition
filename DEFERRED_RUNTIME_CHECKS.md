@@ -80,3 +80,15 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | smoke train | NOT RUN (by design) | 20 steps preset r16; `set_stance(skip_guard_eval_unsafe=True)` raises no guard errors after step 5 |
 | torch.compile behaviour | NOT RUN (by design) | no recompilation when the block count changes (count over 1480 steps) |
 | fixed point | NOT RUN (by design) | full run vs committed logs (40 runs, mean final 3.2785 at 1480) |
+
+## r17 (record #17)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS; load with the key rename; rotary cos/sin are non-persistent buffers (absent from state_dict in both) |
+| forward equivalence | NOT RUN (by design) | snapshot vs flagged r17 bitwise identical loss |
+| Muon uneven split | NOT RUN (by design) | world_size 8 with drop_attn_layer: 44 square matrices → last round of 4; parameters identical to a world_size-1 step from the same state (up to all_gather exactness) |
+| expandable_segments set before CUDA init | NOT RUN (by design) | `torch.cuda.memory._get_allocator_backend()`/allocator settings report expandable segments under preset r17 |
+| smoke train | NOT RUN (by design) | 20 steps preset r17 |
+| torch.compile behaviour | NOT RUN (by design) | `None` entries in the value-embedding list do not cause graph breaks per layer |
+| fixed point | NOT RUN (by design) | full run vs the committed log (final 3.2794 at 1490) |
