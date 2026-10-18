@@ -30,10 +30,14 @@ vocab_size                  snapshot=50304                                  pres
 warmdown_iters              snapshot=900                                    preset=900                                    match
 warmup_iters                snapshot=0                                      preset=0                                      match
 weight_decay                snapshot=0                                      preset=0                                      match
+window_warmup_end           snapshot=-                                      preset=1792                                   NOT EXTRACTABLE (absent in snapshot)
+window_warmup_quantum       snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
+window_warmup_start         snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
 flag:doc_masking            snapshot=False                                  preset=False                                  match
 flag:flex_kernel            snapshot=False                                  preset=False                                  match
 flag:long_context           snapshot=False                                  preset=False                                  match
 flag:rotary_variant         snapshot=v11                                    preset=v11                                    match
+flag:window_warmup          snapshot=False                                  preset=False                                  match
 configs/r11.yaml: 0 mismatches
 params: snapshot total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}
 params: flagged  total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}

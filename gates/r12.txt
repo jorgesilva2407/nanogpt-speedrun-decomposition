@@ -30,10 +30,14 @@ vocab_size                  snapshot=50304                                  pres
 warmdown_iters              snapshot=562                                    preset=562                                    match
 warmup_iters                snapshot=0                                      preset=0                                      match
 weight_decay                snapshot=0                                      preset=0                                      match
+window_warmup_end           snapshot=-                                      preset=1792                                   NOT EXTRACTABLE (absent in snapshot)
+window_warmup_quantum       snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
+window_warmup_start         snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
 flag:doc_masking            snapshot=True                                   preset=True                                   match
 flag:flex_kernel            snapshot=True                                   preset=True                                   match
 flag:long_context           snapshot=True                                   preset=True                                   match
 flag:rotary_variant         snapshot=v12                                    preset=v12                                    match
+flag:window_warmup          snapshot=False                                  preset=False                                  match
 configs/r12.yaml: 0 mismatches
 ledger:
 ledger/r12.yaml: 30 hunks in diff, 30 ledger entries, 0 problems

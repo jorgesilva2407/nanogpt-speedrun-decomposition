@@ -142,6 +142,12 @@ def extract(s: Snapshot):
     reset_before_loop = re.search(r'\ntrain_loader\.reset\(\)\n', src) is not None
     out['loader_replay_first_round'] = reset_before_loop
     out['attn_window'] = find(src, r'window_mask = q_idx - kv_idx < (\d+)\n', cast=int)
+    m = re.search(r'torch\.tensor\((\d+)\*\(\(step/args\.num_iterations \* \((\d+) - (\d+)\) \+ (\d+)\)//(\d+)\)', src)
+    out['window_warmup_quantum'] = out['window_warmup_end'] = out['window_warmup_start'] = None
+    if m:   # record #13: q*((step/N * (end - start) + start)//q)
+        q1, end, s0, s1, q2 = map(int, m.groups())
+        assert q1 == q2 and s0 == s1, 'unexpected window schedule shape'
+        out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
     return out
 
 def detect_flags(s: Snapshot):
@@ -153,6 +159,7 @@ def detect_flags(s: Snapshot):
     seq = hp.get('sequence_length', hp.get('max_device_batch_size'))
     f['long_context'] = seq == 65536 and ('idx[None]' in src or 'inputs[None]' in src)
     f['doc_masking'] = 'docs[q_idx] == docs[kv_idx]' in src
+    f['window_warmup'] = ('attn_blocksize' in src) or ('sliding_window' in src)
     if 'self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))' in src:
         f['rotary_variant'] = 'v11'
     elif 'self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))' in src:
