@@ -163,8 +163,10 @@ because switches that stay on in r18 depend on them. Choosing what "remove" mean
 * **`throughput.py`** measures tokens/s, kept separate from the learning-curve runs. It refuses to start unless
   you confirm the node is otherwise idle. The study measures throughput on one host only (`study.yaml:
   throughput.host`, the lab A100).
-* **Environment:** `Dockerfile` is upstream #18's, byte-identical, with the pins unchanged (CUDA 12.6.2, Python
-  3.12.7, `torch==2.6.0.dev20241231+cu126`). `env.lock` separates pinned lines from unverified ones.
+* **Environment:** `Dockerfile` is upstream #18's (CUDA 12.6.2, Python 3.12.7) with one deviation: **stable
+  `torch==2.6.0+cu126`** instead of the nightly `2.6.0.dev20241231+cu126`, which PyTorch has pruned from its index
+  (decided 2026-10-18; what changes is in `CHANGES/infra.md`, "compat: torch pin"). `env.lock` separates pinned
+  lines from unverified ones.
 
 ### 6. Analysis: `analysis/` (CPU only)
 
@@ -198,7 +200,7 @@ mechanically against the proposal: all 10 rows match. The softcap row is copied 
 sh explore_tools/fetch_sources.sh      # .venv + upstream clone + exported trees + gists + torch sources (idempotent)
 source .venv/bin/activate              # numpy, pyyaml, pytest only; no torch is needed for anything below
 
-python -m pytest tools/tests experiments/tests launch/tests analysis/tests        # 32 tests
+python -m pytest tools/tests experiments/tests launch/tests analysis/tests        # 33 tests
 for n in 11 12 13 14 15 16 17 18; do python -I tools/gate.py $n; done             # static gates -> gates/rNN.txt
 python -I experiments/matrix.py                                                    # regenerate the matrix
 python -I tools/changes_report.py                                                  # regenerate reports/
@@ -219,6 +221,7 @@ the committed ones.
 | every hunk side by side, labelled by ledger id and category | open `reports/changes.html` (self-contained, filterable) |
 | arm → flag → dependency table | `python -I tools/arm_table.py --markdown` |
 | static gates for record N | `python -I tools/gate.py NN` → `gates/rNN.txt` |
+| does every torch API the trainer calls exist in the pinned torch? | `python -I tools/torch_api_check.py ext/torch_src/v2.6.0` → `gates/torch_api.txt` |
 
 ## How to run the study (documented, not executed)
 
@@ -302,6 +305,8 @@ every 25 in the final third, on the full validation set. `study.yaml: validation
 | D5 | Sign-off on the registered softcap prediction. |
 | D6 | The proposal's freeze and sweep dates have passed. |
 | D7 | Which arms get 5 seeds (RQ2), and the AdamW sweep starting points. |
+
+Decided: **D8**, the torch build. Stable `torch==2.6.0+cu126` replaces the pruned nightly (2026-10-18).
 
 ## Repository map
 

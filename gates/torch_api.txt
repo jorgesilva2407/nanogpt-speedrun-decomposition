@@ -1,0 +1,16 @@
+| API | ext/torch_src/v2.6.0 | ext/torch_src | used by |
+|---|---|---|---|
+| `create_block_mask` | ok | ok | block masks #12-#18 |
+| `flex_attention` | ok | ok | attention #12-#18 (enable_gqa: #16) |
+| `BlockMask.from_kv_blocks` | ok | ok | blockmask_manual / blockmask_separate |
+| `set_stance` | ok | ok | code_opts_16 (#16-#17) |
+| `Buffer` | ok | ok | rotary_variant v17 (#17-#18) |
+| `Buffer` | ok | ok | nn.Buffer |
+| `coordinate_descent_tuning` | ok | ok | all presets |
+| `enable_cudnn_sdp` | ok | ok | #11 dense path |
+| `enable_flash_sdp` | ok | ok | #11 dense path |
+| `enable_math_sdp` | ok | ok | #11 dense path |
+| `enable_mem_efficient_sdp` | ok | ok | #11 dense path |
+| `version` | ok | ok | meta.json |
+
+0 problems

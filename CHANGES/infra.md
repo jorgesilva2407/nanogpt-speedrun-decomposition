@@ -103,7 +103,35 @@ at main `8d9ff9c` (2024-12-31 23:45 UTC, the nightly's day).
 | FlexAttention API used by #12–#18 | `create_block_mask(..., _compile=False)` parameter exists; `BlockMask.from_kv_blocks(kv_num_blocks, kv_indices, full_kv_num_blocks, full_kv_indices, BLOCK_SIZE, mask_mod, seq_lengths)`; `flex_attention(..., enable_gqa=False, ...)` | none |
 | `torch.compiler.set_stance(skip_guard_eval_unsafe=…)` (#16–#17), `nn.Buffer` (#17) | both present | none |
 | FlexAttention kernels on A100 | `_a100_default_config` and an sm80 backward branch exist for head_dim 128; whether they fit A100 shared memory is a runtime question | deferred (spike item 4) |
-| nightly wheel availability | PyTorch prunes old nightlies from its index; whether `2.6.0.dev20241231+cu126` can still be installed cannot be established statically | deferred; pins not changed |
+| nightly wheel availability | PyTorch prunes old nightlies from its index; whether `2.6.0.dev20241231+cu126` can still be installed cannot be established statically | deferred; pins not changed. **Superseded 2026-10-18: the nightly is gone; see "compat: torch pin" below** |
+
+## compat: torch pin changed to the stable 2.6.0 release (2026-10-18)
+
+**Decision (user, 2026-10-18):** use `torch==2.6.0+cu126` from `https://download.pytorch.org/whl/cu126` instead of
+upstream #18's `torch==2.6.0.dev20241231+cu126`. **Why:** on 2026-10-18 the cu126 nightly index only held
+`2.15.0.dev` builds (Aug–Sep 2026), so the pinned nightly can no longer be installed (the SPIKE S4a failure case).
+CUDA 12.6.2, cuDNN image and Python 3.12.7 are unchanged.
+
+What was checked statically (sources at tag `v2.6.0` in `ext/torch_src/v2.6.0/`, compared with the nightly's day,
+main `8d9ff9c`, in `ext/torch_src/`; `explore_tools/fetch_sources.sh` re-creates both):
+
+| item | finding |
+|---|---|
+| resolution | `torch==2.6.0+cu126` resolves for linux x86_64 / Python 3.12 from the PyTorch index alone (`uv pip compile`): `triton==3.2.0`, `nvidia-cudnn-cu12==9.5.1.17`, `nvidia-nccl-cu12==2.21.5` |
+| relative age | the 2024-12-31 nightly is **newer** than the v2.6.0 release: it contains code v2.6.0 lacks (`torch.compiler.is_exporting`, inductor `prologue_fusion`, FlexAttention's `WRITE_DQ` default) |
+| every torch API the trainer calls | present with the arguments the trainer passes, in both: `tools/torch_api_check.py` → `gates/torch_api.txt` (12 checks, 0 problems) |
+| `torch/nn/attention/flex_attention.py` | 2 lines differ: the nightly defaults `kernel_options["WRITE_DQ"] = True`, which concerns gradients of tensors captured by a `score_mod`. The trainer passes no `score_mod` (block masks only), so this does not apply |
+| cuDNN SDPA gate (#11 dense path) | `check_cudnn_hardware_support` accepts [sm80, sm90] at v2.6.0 too: A100 and H100 both pass |
+| FlexAttention **backward tile sizes on A100** (head_dim 128, every preset: 768 / 6 heads) | **differ**: nightly `(BLOCK_M, BLOCK_N, warps, stages) = (32, 128, 4, 3)`; v2.6.0 `(64, 128, 8, 3)`, a larger tile using more shared memory. H100 is `(64, 128, 8, 3)` in both. Tile sizes change summation order, not the computed function. Whether v2.6.0's tile fits A100 shared memory is a runtime question: added to `DEFERRED_RUNTIME_CHECKS.md` and SPIKE S4 |
+| other inductor changes (32 lines of `config.py`, 136 of `kernel/flex_attention.py`) | refactors and options the trainer does not set; `coordinate_descent_tuning` (the one option it sets) exists in both |
+
+**Consequences.**
+* **Within the study**, every configuration runs on the same build, so comparisons between arms are unaffected by
+  the choice.
+* **Against the record logs**, results carry build drift. This was already the case: the eight record logs were
+  produced by six different torch builds (`EXPLORATION.md` §2, item 7). For example, #12–#16 ran on cu124 nightlies
+  from Nov–Dec 2024.
+* **Not established without a GPU:** whether kernels, autotuning choices or numerics differ from the nightly's.
 
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 

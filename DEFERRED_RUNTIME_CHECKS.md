@@ -15,8 +15,8 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | unified batch convention, world_size invariance of the token stream | NOT RUN (by design) on real shards; **verified statically** on synthetic shards (`tools/loader_equivalence.py`) | log the first token id of every micro-batch for 400 steps at world_size 1 and 8 → identical sequences |
 | unified batch convention, gradient equivalence | NOT RUN (by design) | one step at world_size 1 (accum 8) vs 8 (accum 1), same seed and data → per-parameter max relative difference of gradients at bf16-rounding level (report the value; bitwise equality is not expected) |
 | cuDNN SDPA available on the A100 for the dense (#11) path | NOT RUN (by design); statically the sm80–sm90 gate in `sdp_utils.cpp` admits it | one forward of preset r11 on the A100 without `RuntimeError: No available kernel` |
-| FlexAttention kernels fit A100 shared memory (head_dim 128, fwd + bwd) | NOT RUN (by design) | one fwd+bwd of preset r12 and r18 on the A100 |
-| pinned nightly `torch==2.6.0.dev20241231+cu126` still installable | NOT RUN (by design) | `docker build` of `launch/Dockerfile` succeeds; else report and stop (pins are not to be changed by this build) |
+| FlexAttention kernels fit A100 shared memory (head_dim 128, fwd + bwd) | NOT RUN (by design); statically, torch 2.6.0 picks a **larger A100 backward tile** than the record's nightly: (64, 128, 8 warps, 3 stages) vs (32, 128, 4, 3) (CHANGES/infra.md "compat: torch pin") | one fwd+bwd of preset r12 and r18 on the A100 without an "out of resource: shared memory" error. If it fails: run those arms on H100 (same tile in both builds) or override the backward tile through `kernel_options` (a trainer change; group decision) |
+| pinned `torch==2.6.0+cu126` (stable; replaces the pruned nightly, CHANGES/infra.md "compat: torch pin") installs | NOT RUN (by design) | `docker build` of `launch/Dockerfile` succeeds; else report and stop (do not change the pin again without a group decision) |
 
 ## r11 (record #11)
 
