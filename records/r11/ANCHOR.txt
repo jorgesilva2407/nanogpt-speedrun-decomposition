@@ -1,0 +1,7 @@
+record: 11
+code_sha: ff93d20b
+tree_sha: ff93d20bd0853e173a0977bd3aba3cc01750e117
+log: records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt (read at 5deb47d)
+log_source_sha1: 36138bfa4e2fbc9d8bb3ba1eee27d3c168fa7e5b
+log_source_lines: 568
+code_vs_log: differs (2 changed lines; see MANIFEST relation)

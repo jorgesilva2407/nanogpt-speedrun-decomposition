@@ -1,0 +1,7 @@
+record: 14
+code_sha: 49c3afa
+tree_sha: 49c3afac4b9ebe2d5b541d12295e770a8bfeef94
+log: records/120424_ValueEmbed/00008ea0-21dd-442a-82ee-d12799249d0f.txt (read at 5deb47d)
+log_source_sha1: 7e2e3af9668fec36fa534bb87ae32150134d74a4
+log_source_lines: 565
+code_vs_log: differs (2 changed lines; see MANIFEST relation)

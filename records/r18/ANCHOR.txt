@@ -1,0 +1,7 @@
+record: 18
+code_sha: 45544f5
+tree_sha: 45544f533ae9528ce0f94f2416fd9bd59c2ad54c
+log: records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt (read at 5deb47d)
+log_source_sha1: 8c47c97f5ee7a89cc816bf5e8fb4ba33f82623f1
+log_source_lines: 558
+code_vs_log: identical

@@ -1,0 +1,7 @@
+record: 16
+code_sha: 0690f2c
+tree_sha: 0690f2c7dfd368478ed15b867b329c4a8a9c6f71
+log: records/121024_MFUTweaks/04df8c70-2462-4b6c-9e49-c7589b321a81.txt (read at 5deb47d)
+log_source_sha1: e65a1ad22757e93048a26e198f918198938e117c
+log_source_lines: 611
+code_vs_log: identical
