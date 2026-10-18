@@ -1060,8 +1060,8 @@ training_time_ms = 0
 torch.cuda.synchronize()
 t0 = time.time()
 # begin training
-if flags.window_warmup and flags.code_opts_15:
-    # rec-15: one persistent window tensor, updated in place only when the window changes
+if flags.window_warmup and (flags.code_opts_15 or flags.code_opts_18):
+    # rec-15: one persistent window tensor, updated in place only when the window changes (rec-18: every step)
     if flags.block_window: # rec-16: the window is a block count; its step-0 value (1 for 64 -> 1792, q 64)
         sw_size_prev = int((args.window_warmup_start + args.window_warmup_quantum) // 128)
     else:
