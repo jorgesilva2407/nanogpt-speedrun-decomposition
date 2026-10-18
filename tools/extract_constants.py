@@ -213,6 +213,7 @@ def detect_flags(s: Snapshot):
     f['code_opts_17'] = 'expandable_segments:True' in src
     f['fp32_small_params'] = 'bf16_embeds' in src
     f['code_opts_18'] = "torch.empty(1, device='cuda', requires_grad=True).backward()" in src
+    f['optimizer'] = 'muon' if re.search(r'= Muon\(', src) else 'adamw'
     if 'nn.Buffer(theta.cos()' in src:
         f['rotary_variant'] = 'v17'
     return f

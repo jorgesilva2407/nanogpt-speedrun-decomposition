@@ -26,6 +26,7 @@ flags:
   code_opts_17: true
   fp32_small_params: false
   code_opts_18: false
+  optimizer: muon               # arm-muon positive control: adamw replaces Muon on the hidden matrices
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin
@@ -65,3 +66,6 @@ hparams:
   dropped_attn_layer: 7        # record: if layer_idx != 7
   ve_sparse_tables: 3          # record: [ve[0], ve[1], ve[2], None x 6, ve[0], ve[1], ve[2]]
   window_block_formula: r16    # used with block_window (records #16-#17)
+  adamw_lr: 0.0018             # used only with optimizer: adamw (record #2's AdamW lr per its README, 'IIRC'); swept
+  adamw_betas: [0.9, 0.95]
+  adamw_weight_decay: 0

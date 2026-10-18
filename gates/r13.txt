@@ -2,6 +2,9 @@
 syntax: PASS
 constants:
 adam_betas                  snapshot=[0.8, 0.95]                            preset=[0.8, 0.95]                            match
+adamw_betas                 snapshot=-                                      preset=[0.9, 0.95]                            NOT EXTRACTABLE (no extractor)
+adamw_lr                    snapshot=-                                      preset=0.0018                                 NOT EXTRACTABLE (no extractor)
+adamw_weight_decay          snapshot=-                                      preset=0                                      NOT EXTRACTABLE (no extractor)
 attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
 cooldown_frac               snapshot=-                                      preset=0.4                                    NOT EXTRACTABLE (absent in snapshot)
 dropped_attn_layer          snapshot=-                                      preset=7                                      NOT EXTRACTABLE (absent in snapshot)
@@ -52,6 +55,7 @@ flag:flex_kernel            snapshot=True                                   pres
 flag:fp32_small_params      snapshot=False                                  preset=False                                  match
 flag:long_context           snapshot=True                                   preset=True                                   match
 flag:muon_ema_momentum      snapshot=False                                  preset=False                                  match
+flag:optimizer              snapshot=muon                                   preset=muon                                   match
 flag:rope_half_truncate     snapshot=False                                  preset=False                                  match
 flag:rotary_variant         snapshot=v12                                    preset=v12                                    match
 flag:value_embeds           snapshot=False                                  preset=False                                  match
