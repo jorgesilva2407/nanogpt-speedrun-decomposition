@@ -104,3 +104,32 @@ at main `8d9ff9c` (2024-12-31 23:45 UTC, the nightly's day).
 | `torch.compiler.set_stance(skip_guard_eval_unsafe=…)` (#16–#17), `nn.Buffer` (#17) | both present | none |
 | FlexAttention kernels on A100 | `_a100_default_config` and an sm80 backward branch exist for head_dim 128; whether they fit A100 shared memory is a runtime question | deferred (spike item 4) |
 | nightly wheel availability | PyTorch prunes old nightlies from its index; whether `2.6.0.dev20241231+cu126` can still be installed cannot be established statically | deferred; pins not changed |
+
+## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
+
+* `--out-dir DIR` writes, on the master process:
+  * `metrics.jsonl` — `kind=train` rows: step, tokens, train loss (mean over all 8 micro-batches of the step: per-rank
+    sums gathered with **one batched all-reduce per flush**, so the value does not depend on world size), wall clock;
+    `kind=val` rows: step, tokens, val loss, fraction of the validation set used, wall clock.
+  * `timing.jsonl` — every training step: GPU time from a pair of CUDA events around the step (no per-step host sync),
+    `compile_warmup` for steps < `measurement.timing_warmup_steps` (10), wall clock. Records are flushed at each
+    validation and at the end (both already synchronise).
+  * `meta.json` — config hash (sha256 of canonical JSON of flags + hparams + measurement), preset, resolved flags,
+    hparams and measurement, seed, git SHA and dirty flag, docker tag and host label (from the launcher's `run:`
+    section), hostname, torch/CUDA/cuDNN versions, GPU name, world size, accumulation steps; at the end peak
+    `max_memory_allocated`/`max_memory_reserved` and the record-convention training time.
+  * `DONE` — written last, after a barrier. No `DONE` means the run is re-run from scratch (files are truncated at
+    start); there is no resume code.
+* A run refuses to start if the launcher reports a dirty git tree (unless `allow_dirty` is set for a dry run), and if
+  the config hash it was given does not match the config.
+* `measurement:` config section (never touches training): `val_every_final_third` (v8: 25; adds validations in the
+  last third, on top of `hparams.val_loss_every` = 125), `val_final_third_fraction` (1.0; a fraction < 1 evaluates a
+  fixed subset — the first micro-batches of the val stream, the same for every run and world size), and
+  `timing_warmup_steps` (10). The alternative "fixed 20% subset every 5 steps in the final third" is
+  `val_every_final_third: 5, val_final_third_fraction: 0.2` — supported, not the default (open decision).
+* `--save-checkpoint`: the final state is saved only when asked (it was always saved before; I/O happens with the clock
+  stopped, after the last step). Checkpoints are never read back.
+* `--throughput-steps N`: N training steps, no validation, then the same files (used by `launch/throughput.py`).
+* With `--out-dir` the per-step console/log line (which called `.item()`, a host sync per step) is not printed; the
+  record-style log file still receives the code header and the validation lines.
+* Not verified at runtime: event timing overhead, the batched all-reduce, file outputs (`DEFERRED_RUNTIME_CHECKS.md`).

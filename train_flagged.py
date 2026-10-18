@@ -899,9 +899,58 @@ def load_config(path):
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', required=True, help='preset or resolved config (configs/rNN.yaml or resolved .json)')
 parser.add_argument('--seed', type=int, required=True, help='seeds python, numpy, torch CPU and all CUDA generators')
+parser.add_argument('--out-dir', default=None, help='run directory: metrics.jsonl, timing.jsonl, meta.json, DONE (infra: run logging)')
+parser.add_argument('--save-checkpoint', action='store_true', help='save the final state (off by default; never used for resuming)')
+parser.add_argument('--throughput-steps', type=int, default=0, help='throughput mode: run this many training steps, no validation')
 cli = parser.parse_args()
 run_config, args = load_config(cli.config)
 flags = load_flags(run_config)
+
+# -----------------------------------------------------------------------------
+# infra: run logging (metrics.jsonl, timing.jsonl, meta.json, DONE). Measurement settings never touch training.
+MEASUREMENT_KEYS = ('val_every_final_third', 'val_final_third_fraction', 'timing_warmup_steps')
+measurement = dict(run_config.get('measurement') or {})
+assert set(measurement) == set(MEASUREMENT_KEYS), f"config measurement keys must be exactly {MEASUREMENT_KEYS}"
+assert 0 < measurement['val_final_third_fraction'] <= 1
+
+def config_hash(cfg):
+    import hashlib
+    blob = json.dumps({k: cfg.get(k) for k in ('flags', 'hparams', 'measurement')}, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+run_info = dict(run_config.get('run') or {})
+if run_info.get('config_hash'):
+    assert run_info['config_hash'] == config_hash(run_config), "config_hash in the run section does not match the config"
+if run_info.get('git_dirty') and not run_info.get('allow_dirty'):
+    raise SystemExit("refusing to run from a dirty git tree (real runs must be reproducible from their commit)")
+
+class RunLog:
+    # appends JSON lines; only the master process writes. DONE is written last, after meta.json is final.
+    def __init__(self, out_dir, enabled):
+        self.out_dir, self.enabled = out_dir, enabled and out_dir is not None
+        if self.enabled:
+            os.makedirs(out_dir, exist_ok=True)
+            assert not os.path.exists(os.path.join(out_dir, 'DONE')), "run directory already complete (DONE exists)"
+            for name in ('metrics.jsonl', 'timing.jsonl'):
+                open(os.path.join(out_dir, name), 'w').close() # atomic runs: a rerun starts from empty files
+    def _append(self, name, row):
+        if self.enabled:
+            with open(os.path.join(self.out_dir, name), 'a') as f:
+                f.write(json.dumps(row) + '\n')
+    def metric(self, **row):
+        self._append('metrics.jsonl', row)
+    def timing(self, **row):
+        self._append('timing.jsonl', row)
+    def meta(self, d):
+        if self.enabled:
+            tmp = os.path.join(self.out_dir, 'meta.json.tmp')
+            with open(tmp, 'w') as f:
+                json.dump(d, f, indent=1, sort_keys=True)
+            os.replace(tmp, os.path.join(self.out_dir, 'meta.json'))
+    def done(self):
+        if self.enabled:
+            with open(os.path.join(self.out_dir, 'DONE'), 'w') as f:
+                f.write(time.strftime('%Y-%m-%dT%H:%M:%S%z') + '\n')
 
 # seeding (infra; see CHANGES/infra.md for what this does and does not control). Every rank uses the same
 # seed, so every rank builds the same initial weights before DDP's rank-0 broadcast.
@@ -1068,6 +1117,40 @@ if master_process:
         f.write(f'{result.stdout}\n')
         f.write('='*100 + '\n')
 
+# infra: run logging state (see RunLog)
+runlog = RunLog(cli.out_dir, master_process)
+final_third_start = args.num_iterations - args.num_iterations // 3
+_val_micro_global = args.val_tokens // args.micro_batch_tokens
+_val_subset_global = round(_val_micro_global * measurement['val_final_third_fraction'])
+assert _val_subset_global % ddp_world_size == 0, "val subset must split evenly over ranks"
+val_subset_steps = _val_subset_global // ddp_world_size
+pending_steps = [] # (step, (start, end) CUDA events, summed micro-batch loss, wall clock) awaiting a flush
+def flush_step_records():
+    # one batched all-reduce of the pending per-step loss sums (all ranks call this at the same points); events are
+    # complete because the caller synchronised. Train loss = mean over all vranks micro-batches of the step.
+    global pending_steps
+    if not pending_steps:
+        return
+    losses = torch.stack([p[2] for p in pending_steps])
+    dist.all_reduce(losses, op=dist.ReduceOp.SUM)
+    losses = (losses / vranks).tolist()
+    for (st, ev, _, wall), l in zip(pending_steps, losses):
+        runlog.metric(kind='train', step=st, tokens=(st + 1) * args.global_batch_tokens, train_loss=l, wall_clock_s=wall)
+        runlog.timing(step=st, gpu_ms=ev[0].elapsed_time(ev[1]), compile_warmup=st < measurement['timing_warmup_steps'],
+                      wall_clock_s=wall)
+    pending_steps = []
+meta = dict(exp_id=run_info.get('exp_id'), config_hash=config_hash(run_config), preset=run_config.get('preset'),
+            flags=vars(flags), hparams=run_config['hparams'], measurement=measurement, seed=cli.seed,
+            git_sha=run_info.get('git_sha'), git_dirty=run_info.get('git_dirty'), docker_tag=run_info.get('docker_tag'),
+            host_label=run_info.get('host_label'), hostname=__import__('socket').gethostname(),
+            torch_version=torch.__version__, cuda_version=torch.version.cuda,
+            cudnn_version=torch.backends.cudnn.version(), gpu=torch.cuda.get_device_name(),
+            world_size=ddp_world_size, accum_steps=train_accumulation_steps, vranks=vranks,
+            mode='throughput' if cli.throughput_steps else 'train', throughput_steps=cli.throughput_steps,
+            started_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'))
+runlog.meta(meta)
+wall_start = time.perf_counter()
+
 training_time_ms = 0
 # start the clock
 torch.cuda.synchronize()
@@ -1117,21 +1200,31 @@ for step in range(args.num_iterations + 1):
         t0 = time.time()
     timed_steps = float('nan') if step <= 11 else (step - 10) + 1 # <= 11 to avoid bug in val
 
-    # once in a while evaluate the validation dataset
-    if (last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0)):
+    # once in a while evaluate the validation dataset; measurement.val_every_final_third adds evaluations in the last
+    # third of training, on a fixed subset (the first micro-batches of the val stream) when val_final_third_fraction < 1
+    full_val = last_step or (args.val_loss_every > 0 and step % args.val_loss_every == 0)
+    extra_val = (not full_val and measurement['val_every_final_third'] > 0 and step >= final_third_start
+                 and step % measurement['val_every_final_third'] == 0)
+    if cli.throughput_steps:
+        full_val = extra_val = False
+    if full_val or extra_val:
         # stop the clock
         torch.cuda.synchronize()
         training_time_ms += 1000 * (time.time() - t0)
+        flush_step_records()
+        this_val_steps = val_steps if full_val else val_subset_steps
         # run validation batches
         model.eval()
         val_loader.reset()
         val_loss = 0.0
-        for _ in range(val_steps):
+        for _ in range(this_val_steps):
             with torch.no_grad():
                 x_val, y_val = val_loader.next_batch()
                 val_loss += model(x_val, y_val, attn_blocksize=attn_blocksize)
         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
-        val_loss /= val_steps
+        val_loss /= this_val_steps
+        runlog.metric(kind='val', step=step, tokens=step * args.global_batch_tokens, val_loss=val_loss.item(),
+                      val_fraction=this_val_steps / val_steps, wall_clock_s=time.perf_counter() - wall_start)
         # log val loss to console and to logfile
         if master_process:
             print(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
@@ -1141,7 +1234,7 @@ for step in range(args.num_iterations + 1):
         torch.cuda.synchronize()
         t0 = time.time()
 
-    if master_process and (last_step or (args.save_every > 0 and step % args.save_every == 0)):
+    if cli.save_checkpoint and master_process and (last_step or (args.save_every > 0 and step % args.save_every == 0)):
         # stop the clock
         torch.cuda.synchronize()
         training_time_ms += 1000 * (time.time() - t0)
@@ -1160,6 +1253,9 @@ for step in range(args.num_iterations + 1):
         break
 
     # --------------- TRAINING SECTION BEGIN -----------------
+    step_events = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+    step_events[0].record()
+    step_loss_sum = torch.zeros((), device='cuda')
     model.train()
     if flags.code_opts_18:
         # rec-18: the step's micro-batches fetched first; every micro-step backward all-reduces (no no_sync)
@@ -1168,6 +1264,7 @@ for step in range(args.num_iterations + 1):
             loss = model(x, y, attn_blocksize=attn_blocksize)
             loss.backward()
             train_loss = loss.detach()
+            step_loss_sum += train_loss
             del loss
     for i in range(1, train_accumulation_steps+1):
         if flags.code_opts_18:
@@ -1182,12 +1279,14 @@ for step in range(args.num_iterations + 1):
                 loss = model(x, y, attn_blocksize=attn_blocksize)
                 loss.backward()
                 train_loss = loss.detach()
+                step_loss_sum += train_loss
                 del loss
                 x, y = train_loader.next_batch()
             continue
         # forward pass
         loss = model(x, y, attn_blocksize=attn_blocksize)
         train_loss = loss.detach()
+        step_loss_sum += train_loss
         # advance the dataset for the next batch
         x, y = train_loader.next_batch()
         # backward pass
@@ -1210,11 +1309,15 @@ for step in range(args.num_iterations + 1):
             sched.step()
     # null the gradients
     model.zero_grad(set_to_none=True)
+    step_events[1].record()
+    pending_steps.append((step, step_events, step_loss_sum, time.perf_counter() - wall_start))
     # --------------- TRAINING SECTION END -------------------
     # everything that follows now is just diagnostics, prints, logging, etc.
+    if cli.throughput_steps and step + 1 >= cli.throughput_steps:
+        break
 
     #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
-    if master_process:
+    if master_process and cli.out_dir is None: # with --out-dir the per-step record goes to metrics.jsonl without a host sync
         approx_time = training_time_ms + 1000 * (time.time() - t0)
         print(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
         with open(logfile, "a") as f:
@@ -1222,6 +1325,17 @@ for step in range(args.num_iterations + 1):
 
 if master_process:
     print(f"peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB")
+
+# infra: final flush, meta.json, DONE (written last)
+torch.cuda.synchronize()
+flush_step_records()
+meta.update(finished_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'), steps_completed=step if not cli.throughput_steps else step + 1,
+            peak_memory_allocated_mib=torch.cuda.max_memory_allocated() // 1024 // 1024,
+            peak_memory_reserved_mib=torch.cuda.max_memory_reserved() // 1024 // 1024,
+            training_time_ms_record_convention=training_time_ms)
+runlog.meta(meta)
+dist.barrier()
+runlog.done()
 
 # -------------------------------------------------------------------------
 # clean up nice

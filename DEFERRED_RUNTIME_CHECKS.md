@@ -111,3 +111,12 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 |---|---|---|
 | AdamW path builds and steps | NOT RUN (by design) | presets r11 and r18 with `optimizer: adamw`: start-up assertion (every parameter in one optimizer) passes, 20 steps run |
 | AdamW LR sweep sanity | NOT RUN (by design) | the three swept LRs do not diverge in 200 steps |
+
+## infra: run logging
+
+| check | status | how / pass criterion |
+|---|---|---|
+| files written | NOT RUN (by design) | 50-step run with `--out-dir`: metrics.jsonl has 50 train rows + val rows, timing.jsonl 50 rows, meta.json complete, DONE present |
+| train loss world-size invariance | NOT RUN (by design) | same seed at world_size 1 and 8: per-step train loss equal up to rounding (mean over the same 8 micro-batches) |
+| timing overhead | NOT RUN (by design) | step time with and without the CUDA-event pair differs by < 0.5% |
+| subset validation | NOT RUN (by design) | `val_final_third_fraction: 0.2` evaluates 32 global micro-batches (4 per rank at 8 GPUs) |

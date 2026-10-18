@@ -67,3 +67,7 @@ hparams:
   adamw_lr: 0.0018             # used only with optimizer: adamw (record #2's AdamW lr per its README, 'IIRC'); swept
   adamw_betas: [0.9, 0.95]
   adamw_weight_decay: 0
+measurement:                   # never affects training (proposal v8 defaults; see README 'open decision')
+  val_every_final_third: 25    # extra validations in the last third of training (hparams.val_loss_every = 125 stays the base cadence)
+  val_final_third_fraction: 1.0  # 0.2 + val_every_final_third 5 = the never-adopted 'fixed 20% subset every 5 steps' alternative
+  timing_warmup_steps: 10      # timing.jsonl marks steps < 10 as compile warm-up (the records' own 'ignore first 10 steps')
