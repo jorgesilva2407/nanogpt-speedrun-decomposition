@@ -33,8 +33,11 @@ weight_decay                snapshot=0                                      pres
 window_warmup_end           snapshot=-                                      preset=1792                                   NOT EXTRACTABLE (absent in snapshot)
 window_warmup_quantum       snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
 window_warmup_start         snapshot=-                                      preset=64                                     NOT EXTRACTABLE (absent in snapshot)
+flag:block_window           snapshot=False                                  preset=False                                  match
 flag:blockmask_manual       snapshot=False                                  preset=False                                  match
+flag:blockmask_separate     snapshot=False                                  preset=False                                  match
 flag:code_opts_15           snapshot=False                                  preset=False                                  match
+flag:code_opts_16           snapshot=False                                  preset=False                                  match
 flag:doc_masking            snapshot=True                                   preset=True                                   match
 flag:flex_kernel            snapshot=True                                   preset=True                                   match
 flag:long_context           snapshot=True                                   preset=True                                   match
@@ -42,6 +45,7 @@ flag:muon_ema_momentum      snapshot=False                                  pres
 flag:rotary_variant         snapshot=v12                                    preset=v12                                    match
 flag:value_embeds           snapshot=False                                  preset=False                                  match
 flag:ve_lambdas2            snapshot=False                                  preset=False                                  match
+flag:ve_split               snapshot=False                                  preset=False                                  match
 flag:ve_unet                snapshot=False                                  preset=False                                  match
 flag:window_warmup          snapshot=False                                  preset=False                                  match
 configs/r12.yaml: 0 mismatches

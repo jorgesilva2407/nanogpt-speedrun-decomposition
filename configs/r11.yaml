@@ -14,6 +14,10 @@ flags:
   code_opts_15: false
   muon_ema_momentum: false
   blockmask_manual: false
+  ve_split: false
+  block_window: false
+  blockmask_separate: false
+  code_opts_16: false
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin

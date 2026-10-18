@@ -43,10 +43,17 @@ FLAGS = {
                              # non-blocking loader, persistent window tensor, uncompiled flex_attention call
     'muon_ema_momentum': False, # Muon momentum as an EMA (buf.lerp_(g, 1-m); g.lerp_(buf, m)) instead of buf = m*buf + g
     'blockmask_manual': False,  # block mask built directly at 128-token-block granularity (BlockMask.from_kv_blocks)
+    # rec-16
+    've_split': False,       # VE rung 3a: one nn.Embedding per value-embedding chunk (module value_embeds, built after the blocks)
+    'block_window': False,   # VE rung 3b's "block sliding window": window counted in whole 128-token blocks, no token-level window
+    'blockmask_separate': False, # "separate block mask": fully-unmasked blocks passed as full blocks (no mask_mod evaluation)
+    'code_opts_16': False,   # rec-16 throughput changes with identical numerics: DDP gradient_as_bucket_view and no buffer
+                             # broadcast, set_stance(skip_guard_eval_unsafe) from step 5, unbuffered shard reads, enable_gqa
 }
 FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14')}
 REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel'],
-            've_unet': ['value_embeds'], 'blockmask_manual': ['flex_kernel', 'long_context']}
+            've_unet': ['value_embeds'], 'blockmask_manual': ['flex_kernel', 'long_context'],
+            've_split': ['ve_unet'], 'block_window': ['blockmask_manual'], 'blockmask_separate': ['block_window']}
 
 class Flags:
     def __init__(self, d):
@@ -338,7 +345,10 @@ class CausalSelfAttention(nn.Module):
             q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         if flags.flex_kernel:
             fa = flex_attention_raw if flags.code_opts_15 else flex_attention
-            y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
+            if flags.code_opts_16:
+                y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask, enable_gqa=True)
+            else:
+                y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
         else:
             y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
         y = y.transpose(1, 2).contiguous().view_as(x) # re-assemble all head outputs side by side
@@ -386,6 +396,20 @@ class GPTConfig:
     logit_softcap : int = 30
     attn_window : int = 1024 # sliding-window length in tokens (long_context only)
 
+class ValueEmbedding(nn.Module):
+    # rec-16 (ve_split): the value-embedding chunks as separate tables; the U-net mirror as a list
+    def __init__(self, config):
+        super().__init__()
+        self.embed = nn.ModuleList([
+            nn.Embedding(config.vocab_size, config.n_embd)
+            for _ in range(config.n_layer // 2)
+        ])
+
+    def forward(self, inputs):
+        ve = [emb(inputs) for emb in self.embed]
+        ve += reversed(ve)
+        return ve
+
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -393,13 +417,17 @@ class GPT(nn.Module):
         self.config = config
 
         modules = dict(wte = nn.Embedding(config.vocab_size, config.n_embd))
-        if flags.value_embeds:
+        if flags.value_embeds and not flags.ve_split:
             # token value embeddings by @KoszarskyB - inspired by @Grad62304977's value residual learning (rec-14)
             # U-net structure on token value embeddings by @leloykun (rec-15): n_layer // 2 chunks
             n_ve = config.n_layer // 2 if flags.ve_unet else config.n_layer
             modules['vte'] = nn.Embedding(config.vocab_size, config.n_embd*n_ve)
         modules['h'] = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
         self.transformer = nn.ModuleDict(modules)
+        if flags.ve_split:
+            # token value embeddings by @KoszarskyB; U-net structure by @leloykun; split into tables (rec-16).
+            # Created after the blocks, as in the record (moves its draws after the blocks' in the init RNG stream).
+            self.value_embeds = ValueEmbedding(config)
 
         # U-net design by @brendanh0gan
         self.encoder_layers = config.n_layer // 2 # Half of the layers for encoder
@@ -414,9 +442,60 @@ class GPT(nn.Module):
 
         block_mask = None
         if flags.flex_kernel:
-            # window length: the step's warmed-up value (rec-13, an int tensor) or the fixed attn_window
-            window = attn_blocksize if flags.window_warmup else self.config.attn_window
-            if flags.long_context and flags.blockmask_manual:
+            # window: the step's warmed-up value (rec-13, an int tensor) or the fixed attn_window; in tokens, or in
+            # 128-token blocks when flags.block_window (rec-16)
+            if flags.window_warmup:
+                window = attn_blocksize
+            else:
+                window = self.config.attn_window // 128 if flags.block_window else self.config.attn_window
+            if flags.block_window:
+                # rec-16: window in whole blocks (`window` is a block count); token-level mask_mod is causal [& document] only
+                BLOCK_SIZE = 128
+                assert idx.ndim == 1
+                docs = (idx == 50256).cumsum(0)
+                docs_low = docs.view(-1, BLOCK_SIZE)[:, 0].contiguous()
+                docs_high = docs.view(-1, BLOCK_SIZE)[:, -1].contiguous()
+                def document_causal(b, h, q_idx, kv_idx):
+                    causal_mask = q_idx >= kv_idx
+                    if flags.doc_masking:
+                        document_mask = docs[q_idx] == docs[kv_idx]
+                        return causal_mask & document_mask
+                    return causal_mask
+                def dense_to_ordered(dense_mask):
+                    num_blocks = dense_mask.sum(dim=-1, dtype=torch.int32)
+                    indices = dense_mask.argsort(dim=-1, descending=True, stable=True).to(torch.int32)
+                    return num_blocks[None, None].contiguous(), indices[None, None].contiguous()
+                def create_doc_swc_block_mask(sliding_window_num_blocks):
+                    kv_idx = block_idx = torch.arange(len(idx) // BLOCK_SIZE, dtype=torch.int32, device="cuda")
+                    q_idx = block_idx[:, None]
+                    causal_bm = q_idx >= kv_idx
+                    causal_full_bm = q_idx > kv_idx
+                    window_bm = q_idx - kv_idx < sliding_window_num_blocks
+                    window_full_bm = window_bm
+                    if flags.doc_masking:
+                        document_bm = (docs_low[:, None] <= docs_high) & (docs_low <= docs_high[:, None])
+                        document_full_bm = (docs_low[:, None] == docs_high) & (docs_low == docs_high[:, None])
+                        nonzero_bm = causal_bm & window_bm & document_bm
+                        full_bm  = causal_full_bm & window_full_bm & document_full_bm
+                    else:
+                        nonzero_bm = causal_bm & window_bm
+                        full_bm  = causal_full_bm & window_full_bm
+                    if flags.blockmask_separate:
+                        kv_num_blocks, kv_indices = dense_to_ordered(nonzero_bm ^ full_bm)
+                        full_kv_num_blocks, full_kv_indices = dense_to_ordered(full_bm)
+                        return BlockMask.from_kv_blocks(
+                            kv_num_blocks,
+                            kv_indices,
+                            full_kv_num_blocks,
+                            full_kv_indices,
+                            BLOCK_SIZE=BLOCK_SIZE,
+                            mask_mod=document_causal,
+                        )
+                    kv_num_blocks, kv_indices = dense_to_ordered(nonzero_bm)
+                    return BlockMask.from_kv_blocks(kv_num_blocks, kv_indices, BLOCK_SIZE=BLOCK_SIZE, mask_mod=document_causal)
+                block_mask = create_doc_swc_block_mask(window)
+                idx = idx[None]
+            elif flags.long_context and flags.blockmask_manual:
                 # rec-15: block-level mask built directly; partial blocks get the token-level mask_mod
                 BLOCK_SIZE = 128
                 assert idx.ndim == 1
@@ -483,7 +562,9 @@ class GPT(nn.Module):
         x = F.rms_norm(x, (x.size(-1),)) # @Grad62304977
         x0 = x
         v1 = None
-        if flags.value_embeds:
+        if flags.ve_split:
+            vi = self.value_embeds(idx) # 12 entries: chunks 0..5 then 5..0 (rec-16)
+        elif flags.value_embeds:
             vi = self.transformer.vte(idx).chunk(self.encoder_layers if flags.ve_unet else self.config.n_layer, dim=-1)
 
         # Store outputs for U-Net skip connections
@@ -499,7 +580,9 @@ class GPT(nn.Module):
             skip_connection = skip_connections.pop()  # Get the corresponding encoder output
             # Apply learnable weight to skip connection
             weighted_skip = self.skip_weights[i] * skip_connection
-            if flags.value_embeds:
+            if flags.ve_split:
+                ve = vi[self.encoder_layers + i] # ve_dec[i] of the mirrored list (rec-16)
+            elif flags.value_embeds:
                 # U-net structure on token value embeddings by @leloykun (rec-15): decoder layer i reuses chunk enc-1-i
                 ve = vi[self.encoder_layers - 1 - i] if flags.ve_unet else vi[self.encoder_layers + i]
             else:
@@ -544,8 +627,8 @@ def _load_data_shard(filename):
     return tokens
 
 def _load_data_shard_torch(filename, ntok):
-    # rec-15 (code_opts_15): read straight into pinned memory, no numpy round trip
-    with open(filename, "rb") as f:
+    # rec-15 (code_opts_15): read straight into pinned memory, no numpy round trip; unbuffered from rec-16 (code_opts_16)
+    with open(filename, "rb", buffering=0 if flags.code_opts_16 else -1) as f:
         tokens = torch.empty(ntok, dtype=torch.uint16, pin_memory=True)
         f.seek(256 * 4)
         nbytes = f.readinto(tokens.numpy())
@@ -771,7 +854,10 @@ if hasattr(config, "coordinate_descent_tuning"):
     config.coordinate_descent_tuning = True # suggested by @Chillee
 model = torch.compile(model)
 # here we wrap model into DDP container
-model = DDP(model, device_ids=[ddp_local_rank])
+if flags.code_opts_16:
+    model = DDP(model, device_ids=[ddp_local_rank], broadcast_buffers=False, gradient_as_bucket_view=True)
+else:
+    model = DDP(model, device_ids=[ddp_local_rank])
 raw_model = model.module # always contains the "raw" unwrapped model
 
 # CUDNN attention is ~4ms faster than Flash, but doesn't get selected by default in PyTorch 2.5.1
@@ -834,20 +920,30 @@ t0 = time.time()
 # begin training
 if flags.window_warmup and flags.code_opts_15:
     # rec-15: one persistent window tensor, updated in place only when the window changes
-    sliding_window_size = torch.tensor(args.window_warmup_start, dtype=torch.int32, device="cuda")
-    sw_size_prev = args.window_warmup_start
+    if flags.block_window: # rec-16: the window is a block count; its step-0 value (1 for 64 -> 1792, q 64)
+        sw_size_prev = int((args.window_warmup_start + args.window_warmup_quantum) // 128)
+    else:
+        sw_size_prev = args.window_warmup_start
+    sliding_window_size = torch.tensor(sw_size_prev, dtype=torch.int32, device="cuda")
 for step in range(args.num_iterations + 1):
     last_step = (step == args.num_iterations)
     attn_blocksize = None
     if flags.window_warmup:
         # Set the attention blocksize for the current step, in chunks of window_warmup_quantum (rec-13, @fernbear.bsky.social)
         q, w0, w1 = args.window_warmup_quantum, args.window_warmup_start, args.window_warmup_end
-        if flags.code_opts_15:
+        if flags.block_window:
+            # rec-16: linearly increase the window over training in chunks of q from w0 -> w1, counted in 128-token blocks
+            frac_done = step / args.num_iterations # training progress
+            sw_size = int(((1 - frac_done) * w0 + frac_done * w1 + q) // 128)
+        else:
             sw_size = q * int((w0 + (w1 - w0) * step / args.num_iterations) // q)
+        if flags.code_opts_15:
             if sw_size != sw_size_prev:
                 sliding_window_size.copy_(sw_size, non_blocking=True)
                 sw_size_prev = sw_size
             attn_blocksize = sliding_window_size
+        elif flags.block_window:
+            attn_blocksize = torch.tensor(sw_size, dtype=torch.int32, device='cuda')
         else:
             attn_blocksize = torch.tensor(q*((step/args.num_iterations * (w1 - w0) + w0)//q), dtype=torch.int, device='cuda')
     # This effectively ignores timing first 10 steps, which are slower for weird reasons.
@@ -905,8 +1001,11 @@ for step in range(args.num_iterations + 1):
     for i in range(1, train_accumulation_steps+1):
         if flags.code_opts_15:
             # rec-15: forward and backward, then fetch the next micro-batch (same data, different overlap)
-            ctx = model.no_sync() if i < train_accumulation_steps else contextlib.nullcontext()
-            with ctx: # there's no need to sync gradients every accumulation step
+            with contextlib.ExitStack() as stack:
+                if i < train_accumulation_steps: # there's no need to sync gradients every accumulation step
+                    stack.enter_context(model.no_sync())
+                if flags.code_opts_16 and step >= 5: # rec-16
+                    stack.enter_context(torch.compiler.set_stance(skip_guard_eval_unsafe=True))
                 loss = model(x, y, attn_blocksize=attn_blocksize)
                 loss.backward()
                 train_loss = loss.detach()
@@ -924,8 +1023,9 @@ for step in range(args.num_iterations + 1):
                 loss.backward()
         else:
             loss.backward() # just sync on the last step
-    for p in model.parameters():
-        p.grad /= train_accumulation_steps
+    if not (flags.code_opts_16 and train_accumulation_steps == 1): # rec-16 skips the division by 1 (exact either way)
+        for p in model.parameters():
+            p.grad /= train_accumulation_steps
     # momentum warmup for Muon
     frac = min(step/args.muon_momentum_warmup_steps, 1)
     for group in optimizer3.param_groups: # one group, or one per parameter size with code_opts_15
