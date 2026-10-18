@@ -89,3 +89,36 @@ def test_incomplete_runs_ignored_and_host_pooling_refused(tmp_path):
         group(runs)
     with pytest.raises(HostPoolingError):
         same_host([runs[0]], [runs[1]])
+
+# ---------------------------------------------------------------- primary table, end to end on synthetic results
+def write_full_run(root, name, seed, host, c, timing_ms=None):
+    d = os.path.join(root, name, f'seed{seed}'); os.makedirs(d)
+    json.dump(dict(host_label=host, seed=seed, exp_id=name), open(os.path.join(d, 'meta.json'), 'w'))
+    s, l = curve(c=c, every=25, noise=0.001, seed=seed)
+    with open(os.path.join(d, 'metrics.jsonl'), 'w') as f:
+        for st, v in zip(s, l):
+            f.write(json.dumps(dict(kind='val', step=int(st), tokens=int(st) * 524288, val_loss=float(v), val_fraction=1.0, wall_clock_s=0)) + '\n')
+    with open(os.path.join(d, 'timing.jsonl'), 'w') as f:
+        for st in range(30):
+            ms = 5000.0 if st < 10 else (timing_ms or 150.0)
+            f.write(json.dumps(dict(step=st, gpu_ms=ms, compile_warmup=st < 10, wall_clock_s=0)) + '\n')
+    open(os.path.join(d, 'DONE'), 'w').write('x')
+
+def test_primary_table_end_to_end(tmp_path):
+    import tables
+    for k in range(3):
+        write_full_run(tmp_path, 'fp_r11', k, 'lab', c=200.0)
+        write_full_run(tmp_path, 'aoi_A7', k, 'lab', c=190.0)
+        write_full_run(tmp_path, 'fp_r18', k, 'lab', c=180.0)
+        write_full_run(tmp_path, 'loo_A7', k, 'lab', c=186.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'fp_r18', 'lab-a100', 't1'), 'run', 0, 'lab-a100', c=180.0, timing_ms=150.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'loo_A7', 'lab-a100', 't1'), 'run', 0, 'lab-a100', c=186.0, timing_ms=140.0)
+    out = tmp_path / 'table.md'
+    text = tables.build(str(tmp_path), str(out))
+    row = next(l for l in text.splitlines() if l.startswith('| A7 '))
+    cells = [c.strip() for c in row.strip('|').split('|')]
+    assert cells[1].startswith('No sample-efficiency effect')
+    assert cells[2].startswith('+') and cells[3].startswith('-')         # LOO slower to target, AOI faster
+    assert cells[4].startswith('+')                                        # 140 ms/step vs 150 ms/step: more tokens/s
+    assert '/' in cells[5] and '%' in cells[5]
+    assert 'undefined (D1)' in next(l for l in text.splitlines() if l.startswith('| A3 '))
