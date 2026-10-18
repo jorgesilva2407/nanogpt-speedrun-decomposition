@@ -1,5 +1,5 @@
 # Preset r18 = record #18 (lower logit softcap from 30 to 15), 2025-01-04.
-# Snapshot: work/records/r18/log_source/train_gpt.py (== 45544f5, identical). The snapshot diff from r17 also carries
+# Snapshot: records/r18/log_source/train_gpt.py (== 45544f5, identical). The snapshot diff from r17 also carries
 # Keller's 2024-12-13..2025-01-01 rewrite (see ledger/r18.yaml): fp32_small_params, code_opts_18, frac schedule, loader.
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.

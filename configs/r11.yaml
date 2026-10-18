@@ -1,5 +1,5 @@
 # Preset r11 = record #11 (U-net skip connections & double lr), 2024-11-10.
-# Snapshot: work/records/r11/log_source/train_gpt2.py (embedded in the committed log; == ff93d20b up to a
+# Snapshot: records/r11/log_source/train_gpt2.py (embedded in the committed log; == ff93d20b up to a
 # docstring prefix). Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r11
 flags:

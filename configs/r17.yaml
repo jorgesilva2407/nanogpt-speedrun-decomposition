@@ -1,5 +1,5 @@
 # Preset r17 = record #17 (sparsify value embeddings, improve rotary embeddings, drop an attn layer), 2024-12-17.
-# Snapshot: work/records/r17/log_source/train_gpt2.py (no commit holds it; the committed log was run 2024-12-25;
+# Snapshot: records/r17/log_source/train_gpt2.py (no commit holds it; the committed log was run 2024-12-25;
 # YouJiacheng's gist dff723d9 log of 2024-12-23 embeds the same model code).
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.

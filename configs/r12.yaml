@@ -1,5 +1,5 @@
 # Preset r12 = record #12 (1024-ctx dense causal attention -> 64K-ctx FlexAttention), 2024-11-19.
-# Snapshot: work/records/r12/log_source/train_gpt2.py (== ebce774 up to one comment line).
+# Snapshot: records/r12/log_source/train_gpt2.py (== ebce774 up to one comment line).
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r12
 flags:

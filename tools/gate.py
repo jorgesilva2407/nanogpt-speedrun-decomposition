@@ -8,7 +8,7 @@ Gates (nothing touches torch or a GPU):
                  documented name map; totals printed; #11 and #18 totals checked against the brief.
   5. loader      micro-batch stream of train_flagged.py at world_size 1/2/4/8 == the snapshot's 8-GPU stream
                  (tools/loader_equivalence.py; loader classes only, torch stubbed).
-Usage: python -I tools/gate.py NN [--records ../records]
+Usage: python -I tools/gate.py NN [--records records]
 """
 import argparse, ast, io, math, os, re, subprocess, sys, warnings, contextlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -83,7 +83,7 @@ def gate_params(records, n, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('n', type=int); ap.add_argument('--records', default=os.path.join(HERE, '..', 'records'))
+    ap.add_argument('n', type=int); ap.add_argument('--records', default=os.path.join(HERE, 'records'))
     ap.add_argument('--protocol', default=None)
     a = ap.parse_args()
     n = a.n

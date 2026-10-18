@@ -1,5 +1,5 @@
 # Preset r13 = record #13 (attention window warmup), 2024-11-24.
-# Snapshot: work/records/r13/log_source/train_gpt2.py (== 759b8fc up to a moved statement and a comment).
+# Snapshot: records/r13/log_source/train_gpt2.py (== 759b8fc up to a moved statement and a comment).
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r13
 flags:
