@@ -3,6 +3,8 @@ syntax: PASS
 constants:
 adam_betas                  snapshot=[0.9, 0.95]                            preset=[0.9, 0.95]                            match
 attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+dropped_attn_layer          snapshot=-                                      preset=7                                      NOT EXTRACTABLE (absent in snapshot)
+embed_vocab_size            snapshot=50304                                  preset=50304                                  match
 global_batch_tokens         snapshot=524288                                 preset=524288                                 match
 input_bin                   snapshot=data/fineweb10B/fineweb_train_*.bin    preset=data/fineweb10B/fineweb_train_*.bin    match
 input_val_bin               snapshot=data/fineweb10B/fineweb_val_*.bin      preset=data/fineweb10B/fineweb_val_*.bin      match
@@ -26,6 +28,7 @@ save_every                  snapshot=0                                      pres
 sequence_length             snapshot=1024                                   preset=1024                                   match
 val_loss_every              snapshot=125                                    preset=125                                    match
 val_tokens                  snapshot=10485760                               preset=10485760                               match
+ve_sparse_tables            snapshot=-                                      preset=3                                      NOT EXTRACTABLE (absent in snapshot)
 vocab_size                  snapshot=50304                                  preset=50304                                  match
 warmdown_iters              snapshot=900                                    preset=900                                    match
 warmup_iters                snapshot=0                                      preset=0                                      match
@@ -38,13 +41,17 @@ flag:blockmask_manual       snapshot=False                                  pres
 flag:blockmask_separate     snapshot=False                                  preset=False                                  match
 flag:code_opts_15           snapshot=False                                  preset=False                                  match
 flag:code_opts_16           snapshot=False                                  preset=False                                  match
+flag:code_opts_17           snapshot=False                                  preset=False                                  match
 flag:doc_masking            snapshot=False                                  preset=False                                  match
+flag:drop_attn_layer        snapshot=False                                  preset=False                                  match
 flag:flex_kernel            snapshot=False                                  preset=False                                  match
 flag:long_context           snapshot=False                                  preset=False                                  match
 flag:muon_ema_momentum      snapshot=False                                  preset=False                                  match
+flag:rope_half_truncate     snapshot=False                                  preset=False                                  match
 flag:rotary_variant         snapshot=v11                                    preset=v11                                    match
 flag:value_embeds           snapshot=False                                  preset=False                                  match
 flag:ve_lambdas2            snapshot=False                                  preset=False                                  match
+flag:ve_sparsify            snapshot=False                                  preset=False                                  match
 flag:ve_split               snapshot=False                                  preset=False                                  match
 flag:ve_unet                snapshot=False                                  preset=False                                  match
 flag:window_warmup          snapshot=False                                  preset=False                                  match

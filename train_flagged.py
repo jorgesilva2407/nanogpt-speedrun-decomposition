@@ -2,6 +2,19 @@ import os
 import sys
 with open(sys.argv[0]) as f:
     code = f.read() # read the code of this file ASAP, for logging
+def _peek_flags_before_torch(argv):
+    # rec-17 (code_opts_17) sets the CUDA allocator before torch is imported, so read the config's flags first
+    if '--config' not in argv:
+        return {}
+    path = argv[argv.index('--config') + 1]
+    with open(path) as f:
+        if path.endswith(('.yaml', '.yml')):
+            import yaml
+            return (yaml.safe_load(f) or {}).get('flags') or {}
+        import json as _json
+        return _json.load(f).get('flags') or {}
+if _peek_flags_before_torch(sys.argv).get('code_opts_17'):
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import uuid
 import glob
 import time
@@ -31,7 +44,8 @@ FLAGS = {
     'flex_kernel': False,    # attention through FlexAttention instead of cuDNN SDPA (same attention pattern)
     'long_context': False,   # 1 row of 64K tokens with a sliding window, global positions (vs 64 rows of 1024 causal)
     'doc_masking': False,    # no attention across document boundaries (token 50256 starts a document)
-    'rotary_variant': 'v11', # rotary: 'v11' inv_freq on CPU at init | 'v12' on device at first use | 'v14' bf16 buffer, rotates itself
+    'rotary_variant': 'v11', # rotary: 'v11' inv_freq on CPU at init | 'v12' on device at first use | 'v14' bf16 buffer,
+                             # rotates itself | 'v17' cos/sin tables precomputed in fp32 as buffers, rotation in fp32
     # rec-13
     'window_warmup': False,  # attention window grows linearly over training (window_warmup_* hparams) instead of fixed
     # rec-14
@@ -49,11 +63,17 @@ FLAGS = {
     'blockmask_separate': False, # "separate block mask": fully-unmasked blocks passed as full blocks (no mask_mod evaluation)
     'code_opts_16': False,   # rec-16 throughput changes with identical numerics: DDP gradient_as_bucket_view and no buffer
                              # broadcast, set_stance(skip_guard_eval_unsafe) from step 5, unbuffered shard reads, enable_gqa
+    # rec-17
+    've_sparsify': False,    # VE rung 4: ve_sparse_tables tables used by the first and last layers only (none in between)
+    'rope_half_truncate': False, # "improved rotary" frequencies: (1/1024)**linspace(0,1,dim/4) on half the pairs, zero on the rest
+    'drop_attn_layer': False,  # layer dropped_attn_layer has no attention (capacity change)
+    'code_opts_17': False,   # rec-17 throughput changes: expandable_segments allocator; enable_gqa dropped again
 }
-FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14')}
+FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14', 'v17')}
 REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel'],
             've_unet': ['value_embeds'], 'blockmask_manual': ['flex_kernel', 'long_context'],
-            've_split': ['ve_unet'], 'block_window': ['blockmask_manual'], 'blockmask_separate': ['block_window']}
+            've_split': ['ve_unet'], 'block_window': ['blockmask_manual'], 'blockmask_separate': ['block_window'],
+            've_sparsify': ['ve_split']}
 
 class Flags:
     def __init__(self, d):
@@ -216,7 +236,6 @@ class Muon(torch.optim.Optimizer):
             update_buffers = group["update_buffer"]
             # generate weight updates in distributed fashion
             params = group["params"]
-            assert len(params) % self.num_process == 0
             handle = None
             params_world = None
             def update_prev():
@@ -230,12 +249,17 @@ class Muon(torch.optim.Optimizer):
                         alpha=-lr * max(1, p_world.size(0) / p_world.size(1)) ** 0.5,
                     )
             for base_i in range(len(params))[::self.num_process]:
-                p = params[base_i + self.rank]
-                g = p.grad
-                assert g is not None
-                state = self.state[p]
-                g = self.momentum_update(g, state, momentum, nesterov)
-                g = zeropower_backend(g, steps=backend_steps).flatten()
+                # rec-17: the last round may hold fewer parameters than ranks (44 square matrices once a layer has
+                # no attention); a rank without a parameter sends its stale buffer, which no rank applies
+                if base_i + self.rank < len(params):
+                    p = params[base_i + self.rank]
+                    g = p.grad
+                    assert g is not None
+                    state = self.state[p]
+                    g = self.momentum_update(g, state, momentum, nesterov)
+                    g = zeropower_backend(g, steps=backend_steps).flatten()
+                else:
+                    g = update_buffers[self.rank]
                 update_prev()
                 handle = dist.all_gather(update_buffers, g, async_op=True)
                 params_world = params[base_i : base_i + self.num_process]
@@ -244,24 +268,50 @@ class Muon(torch.optim.Optimizer):
 # -----------------------------------------------------------------------------
 # PyTorch nn.Module definitions for the GPT-2 model
 
+def half_truncated_inv_freq(dim, device=None):
+    # rec-17 "improved rotary" (half-truncate RoPE by @YouJiacheng): base-1024 frequencies on dim/4 pairs, zero on the rest
+    inv_freq = (1 / 1024) ** torch.linspace(0.0, 1.0, steps=dim // 4, dtype=torch.float32, device=device)
+    return torch.cat([inv_freq, inv_freq.new_zeros(dim // 4)])
+
 class Rotary(torch.nn.Module):
 
-    def __init__(self, dim, base=10000):
+    def __init__(self, dim, base=10000, max_seq_len=65536):
         super().__init__()
         self.dim = dim
         self.base = base
         if flags.rotary_variant == 'v11':
-            self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+            if flags.rope_half_truncate:
+                self.inv_freq = half_truncated_inv_freq(dim)
+            else:
+                self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         elif flags.rotary_variant == 'v12':
             self.inv_freq = None
-        else: # 'v14': a registered buffer, so model.bfloat16() casts it to bf16 (rec-14)
-            self.register_buffer('inv_freq', (1 / base) ** (torch.arange(0, dim, 2) / dim))
+        elif flags.rotary_variant == 'v14': # a registered buffer, so model.bfloat16() casts it to bf16 (rec-14)
+            if flags.rope_half_truncate:
+                self.register_buffer('inv_freq', half_truncated_inv_freq(dim))
+            else:
+                self.register_buffer('inv_freq', (1 / base) ** (torch.arange(0, dim, 2) / dim))
+        else: # 'v17': tables for every position precomputed in fp32; buffers, so a global cast also casts them (rec-17)
+            if flags.rope_half_truncate:
+                inv_freq = half_truncated_inv_freq(dim)
+            else:
+                inv_freq = (1 / base) ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim)
+            t = torch.arange(max_seq_len, dtype=torch.float32)
+            theta = torch.einsum("i, j -> ij", t, inv_freq)
+            self.cos = nn.Buffer(theta.cos(), persistent=False)
+            self.sin = nn.Buffer(theta.sin(), persistent=False)
         self.seq_len_cached = None
         self.cos_cached = None
         self.sin_cached = None
 
     def forward(self, x):
         seq_len = x.shape[1]
+        if flags.rotary_variant == 'v17': # rec-17
+            cos, sin = self.cos[None, :x.size(-3), None, :], self.sin[None, :x.size(-3), None, :]
+            x1, x2 = x.to(dtype=torch.float32).chunk(2, dim=-1)
+            y1 = x1 * cos + x2 * sin
+            y2 = x1 * (-sin) + x2 * cos
+            return torch.cat((y1, y2), 3).type_as(x)
         if flags.rotary_variant == 'v14':
             # rec-14: angles from the bf16 buffer, tables kept in that dtype, rotation applied here
             if seq_len != self.seq_len_cached:
@@ -282,7 +332,10 @@ class Rotary(torch.nn.Module):
                 t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
                 freqs = torch.outer(t, self.inv_freq).to(x.device)
             else: # 'v12'
-                self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))
+                if flags.rope_half_truncate:
+                    self.inv_freq = half_truncated_inv_freq(self.dim, device=x.device)
+                else:
+                    self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))
                 self.seq_len_cached = seq_len
                 t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
                 freqs = torch.outer(t, self.inv_freq)
@@ -328,15 +381,21 @@ class CausalSelfAttention(nn.Module):
         q = self.c_q(x).view(B, T, self.n_head, self.head_dim)
         k = self.c_k(x).view(B, T, self.n_head, self.head_dim)
         v = self.c_v(x).view(B, T, self.n_head, self.head_dim)
-        if v1 is None:
+        if v1 is None and flags.value_embeds:
+            # rec-17 (ve_sparsify): this layer has no value embedding. Record: v = lambdas[0] * v. With a single lamb
+            # (non-historical combination) the same rule reads (1 - lamb) * v.
+            v = self.lambdas[0] * v if flags.ve_lambdas2 else (1 - self.lamb) * v
+        elif v1 is None:
             v1 = v # This happens if we are in the first block. v needs to be accessed by subsequent blocks
         # with flags.value_embeds the caller passes this layer's value embedding as v1 (never None), which gives
         # rec-14's v = (1 - lamb) * v + lamb * vi.view_as(v)
-        if flags.ve_lambdas2:
+        if v1 is None:
+            pass # rec-17: handled above
+        elif flags.ve_lambdas2:
             v = self.lambdas[0] * v + self.lambdas[1] * v1.view_as(v) # @Grad62304977 (rec-15)
         else:
             v = (1 - self.lamb) * v + self.lamb * v1.view_as(v) # @Grad62304977
-        if flags.rotary_variant == 'v14':
+        if flags.rotary_variant in ('v14', 'v17'):
             q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977
             q, k = self.rotary(q), self.rotary(k)
         else:
@@ -345,7 +404,7 @@ class CausalSelfAttention(nn.Module):
             q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         if flags.flex_kernel:
             fa = flex_attention_raw if flags.code_opts_15 else flex_attention
-            if flags.code_opts_16:
+            if flags.code_opts_16 and not flags.code_opts_17: # rec-16 passes enable_gqa=True, rec-17 drops it
                 y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask, enable_gqa=True)
             else:
                 y = fa(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
@@ -371,16 +430,20 @@ class MLP(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, layer_idx):
         super().__init__()
-        self.attn = CausalSelfAttention(config)
+        # rec-17: skip attention of layer dropped_attn_layer (by @YouJiacheng)
+        self.use_attn = not (flags.drop_attn_layer and layer_idx == config.dropped_attn_layer)
+        if self.use_attn:
+            self.attn = CausalSelfAttention(config)
         self.mlp = MLP(config)
         self.lambdas = nn.Parameter(torch.tensor([1., 0.]))
 
     def forward(self, x, v1, x0, block_mask):
         x = self.lambdas[0] * x + self.lambdas[1] * x0
-        x1, v1 = self.attn(F.rms_norm(x, (x.size(-1),)), v1, block_mask)
-        x = x + x1
+        if self.use_attn:
+            x1, v1 = self.attn(F.rms_norm(x, (x.size(-1),)), v1, block_mask)
+            x = x + x1
         x = x + self.mlp(F.rms_norm(x, (x.size(-1),)))
         return x, v1
 
@@ -395,18 +458,27 @@ class GPTConfig:
     n_embd : int = 768
     logit_softcap : int = 30
     attn_window : int = 1024 # sliding-window length in tokens (long_context only)
+    embed_vocab_size : int = 50304 # rows of the token and value embedding tables (rec-17: 50257; lm_head keeps vocab_size)
+    dropped_attn_layer : int = 7 # drop_attn_layer only
+    ve_sparse_tables : int = 3 # ve_sparsify only
 
 class ValueEmbedding(nn.Module):
     # rec-16 (ve_split): the value-embedding chunks as separate tables; the U-net mirror as a list
     def __init__(self, config):
         super().__init__()
+        n_tables = config.ve_sparse_tables if flags.ve_sparsify else config.n_layer // 2
         self.embed = nn.ModuleList([
-            nn.Embedding(config.vocab_size, config.n_embd)
-            for _ in range(config.n_layer // 2)
+            nn.Embedding(config.embed_vocab_size, config.n_embd)
+            for _ in range(n_tables)
         ])
+        self.n_layer = config.n_layer
 
     def forward(self, inputs):
         ve = [emb(inputs) for emb in self.embed]
+        if flags.ve_sparsify:
+            # rec-17: 012 ... 012 structure (first and last layers only), improved on the U-net structure
+            k = len(ve)
+            return ve[:k] + [None] * (self.n_layer - 2 * k) + ve[:k]
         ve += reversed(ve)
         return ve
 
@@ -416,13 +488,13 @@ class GPT(nn.Module):
         super().__init__()
         self.config = config
 
-        modules = dict(wte = nn.Embedding(config.vocab_size, config.n_embd))
+        modules = dict(wte = nn.Embedding(config.embed_vocab_size, config.n_embd))
         if flags.value_embeds and not flags.ve_split:
             # token value embeddings by @KoszarskyB - inspired by @Grad62304977's value residual learning (rec-14)
             # U-net structure on token value embeddings by @leloykun (rec-15): n_layer // 2 chunks
             n_ve = config.n_layer // 2 if flags.ve_unet else config.n_layer
-            modules['vte'] = nn.Embedding(config.vocab_size, config.n_embd*n_ve)
-        modules['h'] = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+            modules['vte'] = nn.Embedding(config.embed_vocab_size, config.n_embd*n_ve)
+        modules['h'] = nn.ModuleList([Block(config, layer_idx) for layer_idx in range(config.n_layer)])
         self.transformer = nn.ModuleDict(modules)
         if flags.ve_split:
             # token value embeddings by @KoszarskyB; U-net structure by @leloykun; split into tables (rec-16).
@@ -759,6 +831,9 @@ class Hyperparameters:
     n_embd : int
     logit_softcap : int
     attn_window : int # sliding-window length in tokens when flags.long_context (record #12: 1024)
+    embed_vocab_size : int # rows of the token and value embedding tables (record #17: 50257, else vocab_size)
+    dropped_attn_layer : int # flags.drop_attn_layer: index of the layer without attention (record #17: 7)
+    ve_sparse_tables : int # flags.ve_sparsify: number of value-embedding tables (record #17: 3)
     lr_embed : float
     lr_head : float
     lr_muon : float
@@ -844,7 +919,9 @@ x, y = train_loader.next_batch()
 # this originates from Karpathy's experiments.
 num_vocab = args.vocab_size
 model = GPT(GPTConfig(vocab_size=num_vocab, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd,
-                      logit_softcap=args.logit_softcap, attn_window=args.attn_window))
+                      logit_softcap=args.logit_softcap, attn_window=args.attn_window,
+                      embed_vocab_size=args.embed_vocab_size, dropped_attn_layer=args.dropped_attn_layer,
+                      ve_sparse_tables=args.ve_sparse_tables))
 model = model.cuda().bfloat16()
 for m in model.modules():
     if isinstance(m, CastedLinear):
