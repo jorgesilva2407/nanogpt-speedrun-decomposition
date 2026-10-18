@@ -2,6 +2,7 @@
 syntax: PASS
 constants:
 adam_betas                  snapshot=[0.9, 0.95]                            preset=[0.9, 0.95]                            match
+attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
 global_batch_tokens         snapshot=524288                                 preset=524288                                 match
 input_bin                   snapshot=data/fineweb10B/fineweb_train_*.bin    preset=data/fineweb10B/fineweb_train_*.bin    match
 input_val_bin               snapshot=data/fineweb10B/fineweb_val_*.bin      preset=data/fineweb10B/fineweb_val_*.bin      match
@@ -29,6 +30,10 @@ vocab_size                  snapshot=50304                                  pres
 warmdown_iters              snapshot=900                                    preset=900                                    match
 warmup_iters                snapshot=0                                      preset=0                                      match
 weight_decay                snapshot=0                                      preset=0                                      match
+flag:doc_masking            snapshot=False                                  preset=False                                  match
+flag:flex_kernel            snapshot=False                                  preset=False                                  match
+flag:long_context           snapshot=False                                  preset=False                                  match
+flag:rotary_variant         snapshot=v11                                    preset=v11                                    match
 configs/r11.yaml: 0 mismatches
 params: snapshot total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}
 params: flagged  total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}

@@ -1,0 +1,326 @@
+# diff r12 vs r11
+# part 1: log-embedded training script (records/r11/log_source/train_gpt2.py -> records/r12/log_source/train_gpt2.py), -U1
+# part 2: all other tree files (records/r11/tree -> records/r12/tree), -U3; excluded: records/**, tree copies of train_gpt2.py, train_gpt.py
+--- a/train_gpt2.py
++++ b/train_gpt2.py
+@@ -16,2 +16,5 @@
+ from torch.nn.parallel import DistributedDataParallel as DDP
++from torch.nn.attention.flex_attention import flex_attention, create_block_mask
++flex_attention = torch.compile(flex_attention, dynamic=False)
++create_block_mask = torch.compile(create_block_mask, dynamic=False)
+ 
+@@ -32,3 +35,3 @@
+     on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
+-    where S' is diagonal with S_{ii}' \sim Uniform(0.5, 1.5), which turns out not to hurt model
++    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
+     performance at all relative to UV^T, where USV^T = G is the SVD.
+@@ -127,3 +130,5 @@
+         super().__init__()
+-        self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
++        self.dim = dim
++        self.base = base
++        self.inv_freq = None
+         self.seq_len_cached = None
+@@ -135,5 +140,6 @@
+         if seq_len != self.seq_len_cached:
++            self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))
+             self.seq_len_cached = seq_len
+             t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
+-            freqs = torch.outer(t, self.inv_freq).to(x.device)
++            freqs = torch.outer(t, self.inv_freq)
+             self.cos_cached = freqs.cos().bfloat16()
+@@ -172,3 +178,3 @@
+ 
+-    def forward(self, x, v1=None):
++    def forward(self, x, v1, block_mask):
+         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+@@ -183,3 +189,3 @@
+         q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
+-        y = F.scaled_dot_product_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), is_causal=True)
++        y = flex_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
+         y = y.transpose(1, 2).contiguous().view_as(x) # re-assemble all head outputs side by side
+@@ -210,5 +216,5 @@
+ 
+-    def forward(self, x, v1, x0):
++    def forward(self, x, v1, x0, block_mask):
+         x = self.lambdas[0] * x + self.lambdas[1] * x0
+-        x1, v1 = self.attn(F.rms_norm(x, (x.size(-1),)), v1)
++        x1, v1 = self.attn(F.rms_norm(x, (x.size(-1),)), v1, block_mask)
+         x = x + x1
+@@ -231,3 +237,8 @@
+         super().__init__()
+-        self.config = config
++
++        # U-net design by @brendanh0gan
++        self.num_encoder_layers = config.n_layer // 2 # Half of the layers for encoder
++        self.num_decoder_layers = config.n_layer - self.num_encoder_layers # Remaining for decoder
++        # Add learnable skip connection weights for decoder layers
++        self.skip_weights = nn.Parameter(torch.ones(self.num_decoder_layers))
+ 
+@@ -237,9 +248,2 @@
+         ))
+-
+-        # U-net design by @brendanh0gan
+-        self.encoder_layers = config.n_layer // 2 # Half of the layers for encoder
+-        self.decoder_layers = config.n_layer - self.encoder_layers # Remaining for decoder
+-        # Add learnable skip connection weights for decoder layers
+-        self.skip_weights = nn.Parameter(torch.ones(self.decoder_layers))
+-
+         self.lm_head = CastedLinear(config.n_embd, config.vocab_size, bias=False)
+@@ -249,4 +253,14 @@
+ 
++        docs = (idx == 50256).cumsum(0)
++        def document_causal_mask(b, h, q_idx, kv_idx):
++          causal_mask = q_idx >= kv_idx
++          document_mask = docs[q_idx] == docs[kv_idx]
++          window_mask = q_idx - kv_idx < 1024
++          return causal_mask & document_mask & window_mask
++
++        S = len(idx)
++        block_mask = create_block_mask(document_causal_mask, None, None, S, S, device="cuda", _compile=True)
++
+         # forward the GPT model itself
+-        x = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
++        x = self.transformer.wte(idx[None]) # token embeddings of shape (b, t, n_embd)
+         x = F.rms_norm(x, (x.size(-1),)) # @Grad62304977
+@@ -257,14 +271,10 @@
+         skip_connections = []
+-
+         # Encoder pass - process only the first half of the blocks
+-        for i in range(self.encoder_layers):
+-            x, v1 = self.transformer.h[i](x, v1, x0)
+-            skip_connections.append(x)  # Store the output for skip connections
+-
++        for i in range(self.num_encoder_layers):
++            x, v1 = self.transformer.h[i](x, v1, x0, block_mask)
++            skip_connections.append(x)
+         # Decoder pass - process the remaining blocks with weighted skip connections
+-        for i in range(self.decoder_layers):
+-            skip_connection = skip_connections.pop()  # Get the corresponding encoder output
+-            # Apply learnable weight to skip connection
+-            weighted_skip = self.skip_weights[i] * skip_connection
+-            x, v1 = self.transformer.h[self.encoder_layers + i](x + weighted_skip, v1, x0)
++        for i in range(self.num_decoder_layers):
++            x = x + self.skip_weights[i] * skip_connections.pop()
++            x, v1 = self.transformer.h[self.num_encoder_layers + i](x, v1, x0, block_mask)
+ 
+@@ -275,3 +285,3 @@
+         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target.view(-1))
+-        return loss.float()
++        return loss
+ 
+@@ -326,3 +336,2 @@
+ 
+-        # kick things off
+         self.reset()
+@@ -330,5 +339,4 @@
+     def reset(self):
+-        self.current_shard = 0
+-        self.current_position = self.process_rank * self.B * self.T
+-        self.tokens = _load_data_shard(self.files[self.current_shard])
++        self.current_shard = -1
++        self.advance()
+ 
+@@ -340,11 +348,10 @@
+     def next_batch(self):
+-        B = self.B
+-        T = self.T
+-        buf = self.tokens[self.current_position : self.current_position+B*T+1]
++        batch_size = self.B * self.T * self.num_processes
++        buf = self.tokens[self.current_position:self.current_position+self.B*self.T+1]
+         buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
+-        x = (buf[:-1]).view(B, T) # inputs
+-        y = (buf[1:]).view(B, T) # targets
++        x = buf[:-1] # inputs
++        y = buf[1:] # targets
+         # advance current position and load next shard if necessary
+-        self.current_position += B * T * self.num_processes
+-        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
++        self.current_position += batch_size
++        if self.current_position + batch_size >= len(self.tokens):
+             self.advance()
+@@ -361,8 +368,8 @@
+     # optimization hyperparams
+-    batch_size : int = 8*64 # batch size, in sequences, across all devices
+-    device_batch_size : int = 64 # batch size, in sequences, per device
+-    sequence_length : int = 1024 # sequence length, in tokens
+-    num_iterations : int = 3000 # number of iterations to run
++    batch_size : int = 8 # batch size, in sequences, across all devices
++    device_batch_size : int = 1 # batch size, in sequences, per device
++    sequence_length : int = 64*1024 # sequence length, in tokens
++    num_iterations : int = 1875 # number of iterations to run
+     warmup_iters : int = 0
+-    warmdown_iters : int = 900 # number of iterations of linear warmup/warmdown for triangular or trapezoidal schedule
++    warmdown_iters : int = 562 # number of iterations of linear warmup/warmdown for triangular or trapezoidal schedule
+     weight_decay : float = 0
+@@ -385,2 +392,29 @@
+ 
++# begin logging
++logfile = None
++if master_process:
++    run_id = str(uuid.uuid4())
++    logdir = 'logs/%s/' % run_id
++    os.makedirs(logdir, exist_ok=True)
++    logfile = 'logs/%s.txt' % run_id
++    # create the log file
++    with open(logfile, "w") as f:
++        # begin the log by printing this file (the Python code)
++        f.write('='*100 + '\n')
++        f.write(code)
++        f.write('='*100 + '\n')
++def print0(s, logonly=False):
++    if master_process:
++        with open(logfile, "a") as f:
++            if not logonly:
++                print(s)
++            f.write(s+'\n')
++# log information about the hardware/software environment this is running on
++# and print the full `nvidia-smi` to file
++print0(f"Running pytorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}\nnvidia-smi:")
++import subprocess
++result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
++print0(f'{result.stdout}', logonly=True)
++print0('='*100, logonly=True)
++
+ # convenience variables
+@@ -397,5 +431,5 @@
+ val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_rank, ddp_world_size)
+-if master_process:
+-    print(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+-    print(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
++print0(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
++print0(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
++print0('='*100, logonly=True)
+ x, y = train_loader.next_batch()
+@@ -410,3 +444,2 @@
+         m.float()
+-
+ if hasattr(config, "coordinate_descent_tuning"):
+@@ -430,3 +463,3 @@
+ matrix_params = [p for p in params if p.ndim == 2]
+-scalar_params = [p for p in params if p.ndim < 2]+[raw_model.skip_weights]
++scalar_params = [p for p in params if p.ndim < 2] + [raw_model.skip_weights]
+ optimizer3 = Muon(matrix_params, lr=0.04, momentum=0.95)
+@@ -449,22 +482,3 @@
+ 
+-# begin logging
+-if master_process:
+-    run_id = str(uuid.uuid4())
+-    logdir = 'logs/%s/' % run_id
+-    os.makedirs(logdir, exist_ok=True)
+-    logfile = 'logs/%s.txt' % run_id
+-    # create the log file
+-    with open(logfile, "w") as f:
+-        # begin the log by printing this file (the Python code)
+-        f.write('='*100 + '\n')
+-        f.write(code)
+-        f.write('='*100 + '\n')
+-        # log information about the hardware/software environment this is running on
+-        # and print the full `nvidia-smi` to file
+-        f.write(f"Running pytorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}\nnvidia-smi:\n")
+-        import subprocess
+-        result = subprocess.run(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+-        f.write(f'{result.stdout}\n')
+-        f.write('='*100 + '\n')
+-
++# Start training loop
+ training_time_ms = 0
+@@ -474,3 +488,2 @@
+ # begin training
+-train_loader.reset()
+ for step in range(args.num_iterations + 1):
+@@ -501,6 +514,3 @@
+         # log val loss to console and to logfile
+-        if master_process:
+-            print(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
+-            with open(logfile, "a") as f:
+-                f.write(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms\n')
++        print0(f'step:{step}/{args.num_iterations} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms')
+         # start the clock again
+@@ -556,7 +566,4 @@
+     #dist.all_reduce(train_loss, op=dist.ReduceOp.AVG) # all-reducing the training loss would be more correct in terms of logging, but slower
+-    if master_process:
+-        approx_time = training_time_ms + 1000 * (time.time() - t0)
+-        print(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
+-        with open(logfile, "a") as f:
+-            f.write(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms\n")
++    approx_time = training_time_ms + 1000 * (time.time() - t0)
++    print0(f"step:{step+1}/{args.num_iterations} train_loss:{train_loss.item():.4f} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms")
+ 
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -28,4 +28,4 @@
+     pip install -r requirements.txt
+ 
+ CMD ["bash"]
+-ENTRYPOINT []
+\ No newline at end of file
++ENTRYPOINT []
+--- a/README.md
++++ b/README.md
+@@ -14,6 +14,8 @@
+ * Momentum warmup.
+ * Tanh soft logit capping (following Gemma 2).
+ 
++The training has attained this speed due to the contributions of meself, @Grad62304977, @jxbz, @brendanh0gan, & @bozavlado!
++
+ ---
+ 
+ ## Running the training
+@@ -55,16 +57,20 @@
+ The following is the progression of world records for the task of *training a model with 124M active parameters to 3.28 validation loss on FineWeb in the minimal amount of time on an 8xH100 machine.*
+ 
+ 1. [45 minutes: llm.c baseline](https://github.com/karpathy/llm.c/discussions/481) (05/28/24) [[training log](./records/101324_llmc/main.log)] (note: the 90 minute time is on 8xA100; it's 45 minutes on 8xH100. This run is essentially a hardware-optimized GPT-2 (small) replication using better training data.)
+-2. [31.4 minutes: Architectural modernizations and learning rate tuning](https://x.com/kellerjordan0/status/1798863559243513937) (06/06/24) [[training log](./records/060624_AdamW/f66d43d7-e449-4029-8adf-e8537bab49ea.log)] (note: this uses half the tokens as the baseline but isn't yet twice as fast since it's slower PyTorch code rather than raw CUDA. also note: most of the improvement here came from simply tripling the learning rate.)
++2. [31.4 minutes: Architectural modernizations and learning rate tuning](https://x.com/kellerjordan0/status/1798863559243513937) (06/06/24) [[training log](./records/060624_AdamW/f66d43d7-e449-4029-8adf-e8537bab49ea.log)]
+ 3. [24.9 minutes: Introduced the Muon optimizer](https://x.com/kellerjordan0/status/1842300916864844014) (10/04/24)
+ 4. [22.3 minutes: Muon improvements](https://x.com/kellerjordan0/status/1844820919061287009) (10/11/24) [[reproducible log](./records/101024_Muon/eb5659d0-fb6a-49e5-a311-f1f89412f726.txt)]
+ 5. [15.2 minutes: Pad embeddings & architectural modernizations](https://x.com/kellerjordan0/status/1845865698532450646) (10/14/24) [[reproducible log](./records/101424_ModernArch/dabaaddd-237c-4ec9-939d-6608a9ed5e27.txt)]
+ 6. [13.1 minutes: Distributed the overhead of Muon](https://x.com/kellerjordan0/status/1847291684016783746) (10/18/24) [[reproducible log](./records/101724_DistributedMuon/22d24867-eb5a-4fcc-ae2c-263d0277dfd1.txt)]
+-7. [12.0 minutes: Upgraded PyTorch from 2.4.1 to 2.5.0](https://x.com/kellerjordan0/status/1847358578686152764) (10/18/24) [[reproducible log](./records/101824_PyTorch25/d4bfb25f-688d-4da5-8743-33926fad4842.txt)] (note: this now runs at the same speed per step as the CUDA llm.c trainer!)
++7. [12.0 minutes: Upgraded PyTorch from 2.4.1 to 2.5.0](https://x.com/kellerjordan0/status/1847358578686152764) (10/18/24) [[reproducible log](./records/101824_PyTorch25/d4bfb25f-688d-4da5-8743-33926fad4842.txt)]
+ 8. [10.8 minutes: Untied embed and lm_head](https://x.com/kellerjordan0/status/1853188916704387239) (11/03/24) [[reproducible log](./records/110324_UntieEmbed/d6b50d71-f419-4d26-bb39-a60d55ae7a04.txt)]
+ 9. [8.2 minutes: Shortcuts & tweaks](https://x.com/kellerjordan0/status/1854296101303800108) (11/06/24) [[reproducible log](./records/110624_ShortcutsTweaks/dd7304a6-cc43-4d5e-adb8-c070111464a1.txt)]
+ 11. [7.8 minutes: Bfloat16 activations](https://x.com/kellerjordan0/status/1855267054774865980) (11/08/24) [[reproducible log](./records/110824_CastBf16/a833bed8-2fa8-4cfe-af05-58c1cc48bc30.txt)]
+ 12. [7.23 minutes: U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) (11/10/24) [[reproducible log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt)]
++
++Please see the X threads for the contributors to each record.
++
++The `train_gpt2.py` in this repo is the 11/08/24 record. To run the latest 11/10/24 record, use the code in its reproducible log.
+ 
+ <!--Note: The original llm.c baseline is intended to be closer to a replication of GPT-2 than to an optimized LLM training.
+ So it's no surprise that there is room to improve; as @karpathy has said, 'llm.c still has a lot of pending optimizations.'
+@@ -85,6 +91,11 @@
+ 
+ 1. [An 11/07/24 attempt, which I attempted to cerify on 11/09/24](./records/110924_Replicateleloykun)
+ 
++### Notable forks
++
++* [https://github.com/BlinkDL/modded-nanogpt-rwkv](https://github.com/BlinkDL/modded-nanogpt-rwkv)
++* [https://github.com/nikhilvyas/modded-nanogpt-SOAP](https://github.com/nikhilvyas/modded-nanogpt-SOAP)
++
+ ### Speedrun rules
+ 
+ 1. Must not modify the train or validation data pipelines (except to change batch size if you want).
+@@ -144,9 +155,9 @@
+     if G.size(0) > G.size(1):
+         X = X.T 
+     for _ in range(steps):
+-        A = X @ X.T 
+-        B = A @ X 
+-        X = a * X + b * B + c * A @ B 
++        A = X @ X.T
++        B = b * A + c * A @ A
++        X = a * X + B @ X
+     if G.size(0) > G.size(1):
+         X = X.T 
+     return X.to(G.dtype)
+@@ -208,7 +219,7 @@
+ 6. [Anil, Rohan, et al. "Scalable second order optimization for deep learning." arXiv preprint arXiv:2002.09018 (2020).](https://arxiv.org/abs/2002.09018)
+ 7. [Hägele, Alexander, et al. "Scaling Laws and Compute-Optimal Training Beyond Fixed Training Durations." arXiv preprint arXiv:2405.18392 (2024).](https://arxiv.org/abs/2405.18392)
+ 
+-<iframe width="560" height="315" src="https://www.youtube.com/embed/dv13gl0a-FA" frameborder="0" allowfullscreen></iframe>
++[![video](https://img.youtube.com/vi/dv13gl0a-FA/0.jpg)](https://www.youtube.com/watch?v=dv13gl0a-FA)
+ 
+ <img src="img/dofa.jpg" alt="itsover_wereback" style="width:100%;">
+ 

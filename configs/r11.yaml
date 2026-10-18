@@ -2,7 +2,11 @@
 # Snapshot: work/records/r11/log_source/train_gpt2.py (embedded in the committed log; == ff93d20b up to a
 # docstring prefix). Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r11
-flags: {}
+flags:
+  flex_kernel: false
+  long_context: false
+  doc_masking: false
+  rotary_variant: v11
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin
@@ -23,6 +27,7 @@ hparams:
   n_head: 6
   n_embd: 768
   logit_softcap: 30
+  attn_window: 1024        # unused at r11 (long_context off); the r12 value
   lr_embed: 0.6
   lr_head: 0.008
   lr_muon: 0.04
