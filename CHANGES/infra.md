@@ -87,3 +87,20 @@ record #11. **This is an argument from code reading; it has not been executed** 
 * **Later presets.** Record #18's literal code *sums* micro-batch gradients without dividing (identical at
   `accum = 1`, i.e. on 8 GPUs). The flagged trainer always averages; on fewer GPUs this reproduces the 8-GPU
   computation rather than #18's literal fewer-GPU behaviour. Recorded again in `ledger/r18.yaml`.
+
+## compat: drift established statically against the pinned stack
+
+Pinned stack (unchanged, from upstream #18's Dockerfile): `nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04`, Python
+3.12.7, `torch==2.6.0.dev20241231+cu126`. Sources read (not executed), saved under `work/ext/torch_src/`:
+`sdp_utils.cpp` at main `09c950c` (last change before the nightly) and at `v2.6.0`;
+`flex_attention.py`, `torch/compiler/__init__.py`, `torch/nn/parameter.py`, `torch/_inductor/kernel/flex_attention.py`
+at main `8d9ff9c` (2024-12-31 23:45 UTC, the nightly's day).
+
+| item | finding | action |
+|---|---|---|
+| `"""…S_{ii}' \sim…"""` in `zeropower_via_newtonschulz5` | invalid escape `\s` is a `SyntaxWarning` on Python ≥ 3.12 (docstring value unchanged: `\s` is kept literally) | **compat commit**: `r"""` prefix (same string value; this is also how `ff93d20b` writes it) |
+| #11 forces cuDNN SDPA (`enable_cudnn_sdp(True)`, flash/mem-efficient/math off) | `check_cudnn_hardware_support` accepts sm80–sm90 and `check_cudnn_tensor_shapes` accepts head_dim 128, seq 1024 → A100 (sm80) and H100 (sm90) are both inside the gate; nothing else would be available, so a failing gate would raise | none; runtime availability (bundled cuDNN ≥ 8.9.3) deferred |
+| FlexAttention API used by #12–#18 | `create_block_mask(..., _compile=False)` parameter exists; `BlockMask.from_kv_blocks(kv_num_blocks, kv_indices, full_kv_num_blocks, full_kv_indices, BLOCK_SIZE, mask_mod, seq_lengths)`; `flex_attention(..., enable_gqa=False, ...)` | none |
+| `torch.compiler.set_stance(skip_guard_eval_unsafe=…)` (#16–#17), `nn.Buffer` (#17) | both present | none |
+| FlexAttention kernels on A100 | `_a100_default_config` and an sm80 backward branch exist for head_dim 128; whether they fit A100 shared memory is a runtime question | deferred (spike item 4) |
+| nightly wheel availability | PyTorch prunes old nightlies from its index; whether `2.6.0.dev20241231+cu126` can still be installed cannot be established statically | deferred; pins not changed |
