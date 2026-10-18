@@ -78,11 +78,15 @@ FLAGS = {
                              # at step start, no no_sync, window tensor copied every step, no coordinate-descent tuning,
                              # no set_stance/enable_gqa/expandable_segments, Muon normalises after the transpose,
                              # dummy backward after importing torch
+    # arm-muon (positive control; predates the window: Muon arrived at record #3 and is in every preset)
+    'optimizer': 'muon',     # hidden matrices (the parameters Muon gets) optimised by 'muon' or by 'adamw' (adamw_* hparams)
 }
-FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14', 'v17')}
+FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14', 'v17'), 'optimizer': ('muon', 'adamw')}
+# Superseded (not required): block_window builds its own block mask, so blockmask_manual has no effect when block_window
+# is on; ve_split and ve_sparsify build their own layer -> table mapping (ve_unet's chunk indexing is then unused).
 REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel'],
             've_unet': ['value_embeds'], 'blockmask_manual': ['flex_kernel', 'long_context'],
-            've_split': ['ve_unet'], 'block_window': ['blockmask_manual'], 'blockmask_separate': ['block_window'],
+            've_split': ['ve_unet'], 'block_window': ['flex_kernel', 'long_context'], 'blockmask_separate': ['block_window'],
             've_sparsify': ['ve_split']}
 
 class Flags:
@@ -875,6 +879,9 @@ class Hyperparameters:
     window_warmup_end : int # window at the last step, in tokens (record #13: 1792)
     window_warmup_quantum : int # window is a multiple of this many tokens (record #13: 64)
     window_block_formula : str # flags.block_window: block-count expression 'r16' (records #16-#17) | 'r18' (record #18)
+    adamw_lr : float # flags.optimizer == 'adamw': learning rate for the hidden matrices (default 0.0018, record #2's AdamW)
+    adamw_betas : list # flags.optimizer == 'adamw' (record #2: (0.9, 0.95))
+    adamw_weight_decay : float # flags.optimizer == 'adamw' (record #2's baseline: 0)
 
 def load_config(path):
     with open(path) as f:
@@ -991,21 +998,27 @@ else:
 params = list(raw_model.transformer.h.parameters())
 matrix_params = [p for p in params if p.ndim == 2]
 scalar_params = [p for p in params if p.ndim < 2]+[raw_model.skip_weights]
+def matrix_optimizer(matrix_params):
+    if flags.optimizer == 'adamw': # arm-muon: the positive control replaces Muon on exactly Muon's parameters
+        return torch.optim.AdamW(matrix_params, lr=args.adamw_lr, betas=tuple(args.adamw_betas),
+                                 weight_decay=args.adamw_weight_decay, fused=True)
+    return Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
 if flags.code_opts_18:
     # rec-18: one Adam with three param groups, then Muon
     optimizer1 = torch.optim.Adam([dict(params=embed_params, lr=args.lr_embed),
                                    dict(params=[raw_model.lm_head.weight], lr=args.lr_head),
                                    dict(params=scalar_params, lr=args.lr_scalar)],
                                   betas=adam_betas, fused=True)
-    muon_optimizer = Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
-    optimizers = [optimizer1, muon_optimizer]
+    matrix_opt = matrix_optimizer(matrix_params)
+    optimizers = [optimizer1, matrix_opt]
 else:
     optimizer1 = torch.optim.Adam(embed_params, lr=args.lr_embed, betas=adam_betas, fused=True)
     optimizer2 = torch.optim.Adam([raw_model.lm_head.weight],         lr=args.lr_head,  betas=adam_betas, fused=True)
-    optimizer3 = Muon(matrix_params, lr=args.lr_muon, momentum=args.muon_momentum)
+    optimizer3 = matrix_optimizer(matrix_params)
     optimizer4 = torch.optim.Adam(scalar_params, lr=args.lr_scalar, betas=adam_betas, fused=True) # note that this learning rate is neither sensitive nor tuned
     optimizers = [optimizer1, optimizer2, optimizer3, optimizer4]
-    muon_optimizer = optimizer3
+    matrix_opt = optimizer3
+muon_optimizer = matrix_opt if flags.optimizer == 'muon' else None
 # infra: every parameter is optimised by exactly one optimizer (fails at start-up instead of silently skipping one)
 _opt_params = [p for opt in optimizers for g in opt.param_groups for p in g['params']]
 assert len(_opt_params) == len({id(p) for p in _opt_params}), "a parameter is in two optimizers"
@@ -1186,9 +1199,9 @@ for step in range(args.num_iterations + 1):
     if not ((flags.code_opts_16 or flags.code_opts_18) and train_accumulation_steps == 1): # rec-16+ skip dividing by 1 (exact either way)
         for p in model.parameters():
             p.grad /= train_accumulation_steps
-    # momentum warmup for Muon
+    # momentum warmup for Muon (nothing to warm up when flags.optimizer == 'adamw')
     frac = min(step/args.muon_momentum_warmup_steps, 1)
-    for group in muon_optimizer.param_groups: # one group, or one per parameter size with code_opts_15
+    for group in (muon_optimizer.param_groups if muon_optimizer is not None else []): # one group, or one per size (code_opts_15)
         group['momentum'] = (1 - frac) * args.muon_momentum_warmup_start + frac * args.muon_momentum_warmup_end
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):

@@ -104,3 +104,10 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | torch.compile behaviour | NOT RUN (by design) | no coordinate-descent tuning: compile time shorter than r17's; no recompilation as the window grows |
 | fixed point | NOT RUN (by design) | full run vs the committed log (final 3.2785 at 1390) |
 | leave-one-out sanity | NOT RUN (by design) | r18 with `logit_softcap: 30` runs (this is arm 7's LOO configuration) |
+
+## arm-muon (optimizer flag)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| AdamW path builds and steps | NOT RUN (by design) | presets r11 and r18 with `optimizer: adamw`: start-up assertion (every parameter in one optimizer) passes, 20 steps run |
+| AdamW LR sweep sanity | NOT RUN (by design) | the three swept LRs do not diverge in 200 steps |
