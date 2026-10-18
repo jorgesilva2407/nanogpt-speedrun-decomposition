@@ -24,10 +24,13 @@ RUN ln -s /usr/local/bin/python3.12 /usr/local/bin/python && \
 COPY requirements.txt /modded-nanogpt/requirements.txt
 WORKDIR /modded-nanogpt
 
+# DEVIATION from upstream #18: the pinned nightly torch==2.6.0.dev20241231+cu126 is no longer on PyTorch's index;
+# the stable 2.6.0+cu126 release is used instead (decided 2026-10-18; see launch/Dockerfile.NOTE.md). It is installed
+# before requirements.txt so pip does not first pull the latest torch from PyPI.
 RUN python -m pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install torch==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126
 
-RUN pip install --pre torch==2.6.0.dev20241231+cu126 --index-url https://download.pytorch.org/whl/nightly/cu126 --upgrade
+RUN pip install -r requirements.txt
 
 CMD ["bash"]
 ENTRYPOINT []

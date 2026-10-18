@@ -6,7 +6,7 @@
 #   records/rNN/tree/       `git archive <tree SHA>` per record (MANIFEST.md); log_source/ and ANCHOR.txt are rewritten
 #                           too and must come out identical to the committed ones (checked at the end)
 #   ext/gist_r15, gist_r17  YouJiacheng's gists that corroborate the #15 and #17 snapshots
-#   ext/torch_src/          the pinned-stack torch sources read for CHANGES/infra.md (compat section)
+#   ext/torch_src/          torch sources read for CHANGES/infra.md: the record nightly's day (flat) and v2.6.0/
 # Usage: sh explore_tools/fetch_sources.sh            (from anywhere; network needed for missing pieces)
 set -eu
 R=$(cd "$(dirname "$0")/.." && pwd)
@@ -59,7 +59,7 @@ NIGHTLY=8d9ff9c8a414c66809a2be63870a8f1c7ab7ea09   # pytorch main, 2024-12-31 23
 SDP_MAIN=09c950cc872dfcee453307db47fa10553c3f5616  # last change to sdp_utils.cpp before the nightly
 torchfile() {  # torchfile <out name> <ref> <path in pytorch/pytorch>
   if [ ! -s "$T/$1" ]; then
-    mkdir -p "$T"
+    mkdir -p "$(dirname "$T/$1")"
     curl -fsSL "https://raw.githubusercontent.com/pytorch/pytorch/$2/$3" -o "$T/$1"
     echo "== $T/$1"
   fi
@@ -71,6 +71,19 @@ torchfile torch__inductor_kernel_flex_attention.py "$NIGHTLY" torch/_inductor/ke
 torchfile torch_compiler___init__.py "$NIGHTLY" torch/compiler/__init__.py
 torchfile torch_nn___init__.py "$NIGHTLY" torch/nn/__init__.py
 torchfile torch_nn_parameter.py "$NIGHTLY" torch/nn/parameter.py
+torchfile torch__inductor_config.py "$NIGHTLY" torch/_inductor/config.py
+torchfile torch_backends_cuda___init__.py "$NIGHTLY" torch/backends/cuda/__init__.py
+torchfile torch_backends_cudnn___init__.py "$NIGHTLY" torch/backends/cudnn/__init__.py
+# the release actually pinned since 2026-10-18 (launch/Dockerfile.NOTE.md); checked by tools/torch_api_check.py
+torchfile v2.6.0/sdp_utils.cpp v2.6.0 aten/src/ATen/native/transformers/cuda/sdp_utils.cpp
+torchfile v2.6.0/torch_nn_attention_flex_attention.py v2.6.0 torch/nn/attention/flex_attention.py
+torchfile v2.6.0/torch__inductor_kernel_flex_attention.py v2.6.0 torch/_inductor/kernel/flex_attention.py
+torchfile v2.6.0/torch_compiler___init__.py v2.6.0 torch/compiler/__init__.py
+torchfile v2.6.0/torch_nn___init__.py v2.6.0 torch/nn/__init__.py
+torchfile v2.6.0/torch_nn_parameter.py v2.6.0 torch/nn/parameter.py
+torchfile v2.6.0/torch__inductor_config.py v2.6.0 torch/_inductor/config.py
+torchfile v2.6.0/torch_backends_cuda___init__.py v2.6.0 torch/backends/cuda/__init__.py
+torchfile v2.6.0/torch_backends_cudnn___init__.py v2.6.0 torch/backends/cudnn/__init__.py
 
 if git status --porcelain -- records | grep -q .; then
   echo "WARNING: re-exported snapshots differ from the committed ones:"; git status --short -- records; exit 1

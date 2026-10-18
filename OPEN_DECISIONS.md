@@ -60,3 +60,11 @@ been run. The mid-report is 2026-10-23.
 ## D7 — RQ2 seed list and AdamW sweep bases
 `rq2_arms` lists every non-control arm (5 seeds each); `adamw_lr_sweep.bases` runs the sweep on both fixed points.
 Both are config fields chosen as defaults, not decisions.
+
+## D8 — Torch build (DECIDED 2026-10-18)
+
+Upstream #18 pins the nightly `torch==2.6.0.dev20241231+cu126`. PyTorch has pruned it from its index (on 2026-10-18
+the cu126 nightly index only held `2.15.0.dev` builds), so the pinned image could not be built. **Decision (user):
+use the stable `torch==2.6.0+cu126`.** Implemented in `launch/Dockerfile`; static consequences in `CHANGES/infra.md`
+("compat: torch pin"). The one hardware-specific risk found: a larger FlexAttention backward tile on A100 (SPIKE S4).
+

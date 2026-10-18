@@ -149,3 +149,16 @@ def test_param_inventory_plain_tensor_attribute_is_not_a_parameter(tmp_path):
     params, buffers = pinv.inventory(str(p))
     assert params == [('r.w', (3,))]
     assert buffers == [('r.cos', (16, 4))]
+
+
+def test_torch_api_check_detects_missing_param_and_symbol(tmp_path):
+    import torch_api_check as t
+    (tmp_path / 'torch_nn_attention_flex_attention.py').write_text(
+        'def create_block_mask(mask_mod, B, H, Q_LEN, KV_LEN, device="cuda"):\n    pass\n'   # no _compile
+        'class BlockMask:\n    @classmethod\n    def from_kv_blocks(cls, kv_num_blocks, kv_indices, full_kv_num_blocks=None,'
+        ' full_kv_indices=None, BLOCK_SIZE=128, mask_mod=None):\n        pass\n')            # no flex_attention
+    res = {name: status for name, status, _ in t.check(str(tmp_path))}
+    assert 'missing params' in res['create_block_mask'] and "_compile" in res['create_block_mask']
+    assert res['flex_attention'] == 'ABSENT'
+    assert res['BlockMask.from_kv_blocks'] == 'ok'
+    assert res['set_stance'] == 'MISSING FILE'
