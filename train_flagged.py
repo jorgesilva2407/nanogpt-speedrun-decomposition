@@ -29,11 +29,13 @@ FLAGS = {
     'flex_kernel': False,    # attention through FlexAttention instead of cuDNN SDPA (same attention pattern)
     'long_context': False,   # 1 row of 64K tokens with a sliding window, global positions (vs 64 rows of 1024 causal)
     'doc_masking': False,    # no attention across document boundaries (token 50256 starts a document)
-    'rotary_variant': 'v11', # rotary tables: 'v11' inv_freq on CPU at init | 'v12' inv_freq on device at first use
+    'rotary_variant': 'v11', # rotary: 'v11' inv_freq on CPU at init | 'v12' on device at first use | 'v14' bf16 buffer, rotates itself
     # rec-13
     'window_warmup': False,  # attention window grows linearly over training (window_warmup_* hparams) instead of fixed
+    # rec-14
+    'value_embeds': False,   # VE rung 1: token value embeddings (one vocab x n_layer*n_embd table) replace the layer-0 value residual
 }
-FLAG_CHOICES = {'rotary_variant': ('v11', 'v12')}
+FLAG_CHOICES = {'rotary_variant': ('v11', 'v12', 'v14')}
 REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel']}
 
 class Flags:
@@ -169,14 +171,30 @@ class Rotary(torch.nn.Module):
         self.base = base
         if flags.rotary_variant == 'v11':
             self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
-        else: # 'v12'
+        elif flags.rotary_variant == 'v12':
             self.inv_freq = None
+        else: # 'v14': a registered buffer, so model.bfloat16() casts it to bf16 (rec-14)
+            self.register_buffer('inv_freq', (1 / base) ** (torch.arange(0, dim, 2) / dim))
         self.seq_len_cached = None
         self.cos_cached = None
         self.sin_cached = None
 
     def forward(self, x):
         seq_len = x.shape[1]
+        if flags.rotary_variant == 'v14':
+            # rec-14: angles from the bf16 buffer, tables kept in that dtype, rotation applied here
+            if seq_len != self.seq_len_cached:
+                t = torch.arange(seq_len, device=x.device)
+                freqs = torch.outer(t, self.inv_freq)
+                self.seq_len_cached = seq_len
+                self.cos_cached = freqs.cos()
+                self.sin_cached = freqs.sin()
+            cos, sin = self.cos_cached[None, :, None, :], self.sin_cached[None, :, None, :]
+            # apply_rotary_emb(x, cos, sin)
+            x1, x2 = x.chunk(2, dim=3)
+            y1 = x1 * cos + x2 * sin
+            y2 = x1 * (-sin) + x2 * cos
+            return torch.cat((y1, y2), 3).type_as(x)
         if seq_len != self.seq_len_cached:
             if flags.rotary_variant == 'v11':
                 self.seq_len_cached = seq_len
@@ -228,10 +246,16 @@ class CausalSelfAttention(nn.Module):
         v = self.c_v(x).view(B, T, self.n_head, self.head_dim)
         if v1 is None:
             v1 = v # This happens if we are in the first block. v needs to be accessed by subsequent blocks
+        # with flags.value_embeds the caller passes this layer's value embedding as v1 (never None), which gives
+        # rec-14's v = (1 - lamb) * v + lamb * vi.view_as(v)
         v = (1 - self.lamb) * v + self.lamb * v1.view_as(v) # @Grad62304977
-        cos, sin = self.rotary(q)
-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977
-        q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
+        if flags.rotary_variant == 'v14':
+            q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977
+            q, k = self.rotary(q), self.rotary(k)
+        else:
+            cos, sin = self.rotary(q)
+            q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977
+            q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
         if flags.flex_kernel:
             y = flex_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
         else:
@@ -287,10 +311,12 @@ class GPT(nn.Module):
         super().__init__()
         self.config = config
 
-        self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
-            h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-        ))
+        modules = dict(wte = nn.Embedding(config.vocab_size, config.n_embd))
+        if flags.value_embeds:
+            # token value embeddings by @KoszarskyB - inspired by @Grad62304977's value residual learning (rec-14)
+            modules['vte'] = nn.Embedding(config.vocab_size, config.n_embd*config.n_layer)
+        modules['h'] = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+        self.transformer = nn.ModuleDict(modules)
 
         # U-net design by @brendanh0gan
         self.encoder_layers = config.n_layer // 2 # Half of the layers for encoder
@@ -341,13 +367,15 @@ class GPT(nn.Module):
         x = F.rms_norm(x, (x.size(-1),)) # @Grad62304977
         x0 = x
         v1 = None
+        if flags.value_embeds:
+            vi = self.transformer.vte(idx).chunk(self.config.n_layer, dim=-1)
 
         # Store outputs for U-Net skip connections
         skip_connections = []
 
         # Encoder pass - process only the first half of the blocks
         for i in range(self.encoder_layers):
-            x, v1 = self.transformer.h[i](x, v1, x0, block_mask)
+            x, v1 = self.transformer.h[i](x, vi[i] if flags.value_embeds else v1, x0, block_mask)
             skip_connections.append(x)  # Store the output for skip connections
 
         # Decoder pass - process the remaining blocks with weighted skip connections
@@ -355,7 +383,8 @@ class GPT(nn.Module):
             skip_connection = skip_connections.pop()  # Get the corresponding encoder output
             # Apply learnable weight to skip connection
             weighted_skip = self.skip_weights[i] * skip_connection
-            x, v1 = self.transformer.h[self.encoder_layers + i](x + weighted_skip, v1, x0, block_mask)
+            ve = vi[self.encoder_layers + i] if flags.value_embeds else v1
+            x, v1 = self.transformer.h[self.encoder_layers + i](x + weighted_skip, ve, x0, block_mask)
 
         x = F.rms_norm(x, (x.size(-1),))
         logits = self.lm_head(x)
@@ -607,7 +636,8 @@ enable_math_sdp(False)
 
 # init the optimizer(s)
 adam_betas = tuple(args.adam_betas)
-optimizer1 = torch.optim.Adam([raw_model.transformer.wte.weight], lr=args.lr_embed, betas=adam_betas, fused=True)
+embed_params = [raw_model.transformer.wte.weight] + ([raw_model.transformer.vte.weight] if flags.value_embeds else [])
+optimizer1 = torch.optim.Adam(embed_params, lr=args.lr_embed, betas=adam_betas, fused=True)
 optimizer2 = torch.optim.Adam([raw_model.lm_head.weight],         lr=args.lr_head,  betas=adam_betas, fused=True)
 params = list(raw_model.transformer.h.parameters())
 matrix_params = [p for p in params if p.ndim == 2]

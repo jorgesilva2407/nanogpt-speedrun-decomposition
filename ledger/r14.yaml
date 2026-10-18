@@ -1,0 +1,316 @@
+record: 14
+title: "Value embeddings"
+snapshot_from: r13
+snapshot_to: r14
+diff: diffs/r14-vs-r13.diff
+hunks:
+  - id: H001
+    file: train_gpt2.py
+    header: "@@ -7,2 +7,3 @@"
+    description: import contextlib (for the no_sync restructuring, H024)
+    category: cosmetic
+    flag: none
+    flag_reason: import only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H002
+    file: train_gpt2.py
+    header: "@@ -107,4 +108,3 @@"
+    description: "Muon Nesterov written as a conditional expression; non-Nesterov branch now uses buf (unused: nesterov=True)"
+    category: cosmetic
+    flag: none
+    flag_reason: "identical with nesterov=True, the only value any record uses; the flagged trainer keeps r11's form"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H003
+    file: train_gpt2.py
+    header: "@@ -127,2 +127,13 @@"
+    description: "norm() helper; CastedLinear moved above Rotary with an __init__ that fixes bias=False"
+    category: cosmetic
+    flag: none
+    flag_reason: "same operations (F.rms_norm over the last dim; Linear without bias, weight cast to the input dtype)"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H004
+    file: train_gpt2.py
+    header: "@@ -131,5 +142,3 @@"
+    description: "Rotary: inv_freq = (1/base) ** (arange(0, dim, 2)/dim) computed on CPU and registered as a buffer"
+    category: model-mechanism
+    flag: rotary_variant
+    provenance: direct
+    bundled: false
+    numerics: changed
+    note: "intervening commit 30370b5 ('rotary refactor and leave cos/sin in fp32. fixes #39', 2024-12-01). Because it is a *buffer*, the global model.cuda().bfloat16() casts it to bf16, so the intended fp32 tables do not materialise: see H005. rotary_variant v12 -> v14."
+  - id: H005
+    file: train_gpt2.py
+    header: "@@ -141,22 +150,13 @@"
+    description: "Rotary.forward: freqs = outer(int64 positions, bf16 inv_freq) -> bf16 angles; cos/sin kept in bf16 (no explicit cast); rotation moved into Rotary (x.chunk instead of slicing)"
+    category: [model-mechanism, cosmetic]
+    flag: rotary_variant
+    provenance: direct
+    bundled: true
+    numerics: changed
+    parts:
+      - {what: "angles computed in bf16 (positions up to 65,535 times bf16 inv_freq) instead of fp32 then cast: coarser rotary tables at long positions", flag: rotary_variant, category: model-mechanism}
+      - {what: "apply_rotary_emb inlined; x.chunk(2, dim=3) == x[..., :d], x[..., d:]", flag: none, category: cosmetic}
+    note: "Precision reading of the code only (dtype promotion: int64 x bf16 -> bf16). Its training effect is not measured."
+  - id: H006
+    file: train_gpt2.py
+    header: "@@ -164,28 +164,26 @@"
+    description: "CausalSelfAttention: constructor (dim, n_head); lamb and rotary created before c_proj; value mixing uses the layer's value embedding vi instead of the first layer's v (v1); QK-norm then self.rotary(q/k)"
+    category: [model-mechanism, cosmetic]
+    flag: [value_embeds, rotary_variant]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    parts:
+      - {what: "v = (1 - lamb) * v + lamb * vi.view_as(v): value embedding replaces the value residual v1", flag: value_embeds, category: model-mechanism}
+      - {what: "rotary called as self.rotary(q), self.rotary(k) after QK-norm (v14 path)", flag: rotary_variant, category: cosmetic}
+      - {what: "constructor signature, creation order (lamb/rotary before c_proj: no RNG consumed, init stream unchanged), assert B == 1", flag: none, category: cosmetic}
+  - id: H007
+    file: train_gpt2.py
+    header: "@@ -193,3 +191,3 @@"
+    description: attention returns y only (no v1 plumbing)
+    category: cosmetic
+    flag: none
+    flag_reason: "the flagged trainer keeps returning (y, v1); with value_embeds the returned v1 is ignored by the caller"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H008
+    file: train_gpt2.py
+    header: "@@ -197,6 +195,6 @@"
+    description: MLP constructor takes dim
+    category: cosmetic
+    flag: none
+    flag_reason: signature only
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H009
+    file: train_gpt2.py
+    header: "@@ -213,12 +211,11 @@"
+    description: "Block passes vi instead of threading v1; x + attn(norm(x)) written inline"
+    category: [cosmetic, model-mechanism]
+    flag: value_embeds
+    provenance: direct
+    bundled: true
+    numerics: identical
+    note: "same operations; which tensor is mixed into v is decided by value_embeds (H006, H011)"
+  - id: H010
+    file: train_gpt2.py
+    header: "@@ -247,5 +244,7 @@"
+    description: "new nn.Embedding(vocab, n_embd*12) 'vte' between wte and the blocks (463.6M parameters); lm_head via the new CastedLinear"
+    category: [model-mechanism, capacity-change]
+    flag: value_embeds
+    provenance: direct
+    bundled: false
+    numerics: changed
+    note: "created between wte and h, so with value_embeds on the init RNG stream for the blocks shifts (same as the record). 12 = n_layer chunks."
+  - id: H011
+    file: train_gpt2.py
+    header: "@@ -266,5 +265,5 @@"
+    description: "vi = vte(idx[None]).chunk(12, dim=-1); norm() helper"
+    category: model-mechanism
+    flag: value_embeds
+    provenance: direct
+    bundled: false
+    numerics: changed
+  - id: H012
+    file: train_gpt2.py
+    header: "@@ -274,3 +273,3 @@"
+    description: encoder layer i receives vi[i]
+    category: model-mechanism
+    flag: value_embeds
+    provenance: direct
+    bundled: false
+    numerics: changed
+  - id: H013
+    file: train_gpt2.py
+    header: "@@ -279,5 +278,5 @@"
+    description: "decoder layer receives vi[num_encoder_layers + i]; norm() helper"
+    category: model-mechanism
+    flag: value_embeds
+    provenance: direct
+    bundled: false
+    numerics: changed
+  - id: H014
+    file: train_gpt2.py
+    header: "@@ -319,6 +318,5 @@"
+    description: "DistributedDataLoader drops B (one sequence per rank)"
+    category: cosmetic
+    flag: none
+    flag_reason: "B was 1 at r12-r13; reads are unchanged"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H015
+    file: train_gpt2.py
+    header: "@@ -333,3 +331,3 @@"
+    description: shard-size assert without B
+    category: cosmetic
+    flag: none
+    flag_reason: B == 1
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H016
+    file: train_gpt2.py
+    header: "@@ -345,3 +343,3 @@"
+    description: advance() start offset rank*T
+    category: cosmetic
+    flag: none
+    flag_reason: B == 1
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H017
+    file: train_gpt2.py
+    header: "@@ -349,4 +347,4 @@"
+    description: next_batch batch_size and slice without B
+    category: cosmetic
+    flag: none
+    flag_reason: B == 1
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H018
+    file: train_gpt2.py
+    header: "@@ -370,7 +368,6 @@"
+    description: "device_batch_size removed; num_iterations 1750 -> 1530; cooldown_iters 640 -> 600"
+    category: hyperparameter/schedule
+    flag: ["config:num_iterations", "config:warmdown_iters"]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    coupled:
+      - "num_iterations: co-tuned with #14 (value embeddings reach 3.28 in fewer steps per the record)"
+      - "warmdown_iters: absolute-step schedule (600/1530 = 0.392), coupled to num_iterations; rescale under RQ3b"
+  - id: H019
+    file: train_gpt2.py
+    header: "@@ -403,3 +400,2 @@"
+    description: log no longer starts with a '=' separator line
+    category: infra/logging
+    flag: none
+    flag_reason: logging only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H020
+    file: train_gpt2.py
+    header: "@@ -421,13 +417,13 @@"
+    description: "val_steps, accumulation and loader construction without B"
+    category: cosmetic
+    flag: none
+    flag_reason: "B == 1: same values; the flagged trainer computes these under the unified batch convention"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H021
+    file: train_gpt2.py
+    header: "@@ -452,12 +448,5 @@"
+    description: "cuDNN-only SDPA backend selection removed; Adam over [wte, vte] at lr 0.6"
+    category: [cosmetic, model-mechanism]
+    flag: value_embeds
+    provenance: direct
+    bundled: true
+    numerics: changed
+    parts:
+      - {what: "SDPA backend flags: no effect once attention goes through FlexAttention (flex_kernel). The flagged trainer keeps them because its flex_kernel=false path (r11) needs them.", flag: none, category: cosmetic}
+      - {what: "vte optimised by the embedding Adam (same lr_embed, betas)", flag: value_embeds, category: model-mechanism}
+    coupled:
+      - "lr_embed: shared by wte and vte when value_embeds is on (no separate VE learning rate exists in any record)"
+  - id: H022
+    file: train_gpt2.py
+    header: "@@ -491,4 +480,2 @@"
+    description: (moved) attn_blocksize statement removed from before the timer reset
+    category: cosmetic
+    flag: none
+    flag_reason: "statement order relative to timing bookkeeping only; the flagged trainer keeps r13's position"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H023
+    file: train_gpt2.py
+    header: "@@ -500,2 +487,5 @@"
+    description: (moved) attn_blocksize statement re-added after the timer reset, same expression
+    category: cosmetic
+    flag: none
+    flag_reason: see H022
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H024
+    file: train_gpt2.py
+    header: "@@ -543,13 +533,11 @@"
+    description: "accumulation loop restructured around contextlib.nullcontext/no_sync; same forward, prefetch, backward order (PR #31)"
+    category: cosmetic
+    flag: none
+    flag_reason: same operations in the same order
+    provenance: direct
+    bundled: false
+    numerics: identical
+    note: "PR #31 (Tim Lau, merged 2024-11-25), intervening"
+  - id: H025
+    file: train_gpt2.py
+    header: "@@ -577,2 +565,2 @@"
+    description: no newline at end of file
+    category: cosmetic
+    flag: none
+    flag_reason: whitespace
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H026
+    file: README.md
+    header: "@@ -7,7 +7,7 @@"
+    description: README Muon link
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H027
+    file: README.md
+    header: "@@ -16,7 +16,8 @@"
+    description: README credits reflowed
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H028
+    file: README.md
+    header: "@@ -26,13 +27,15 @@"
+    description: "README install line pins torch==2.6.0.dev20241203+cu124; compile-time note"
+    category: infra/logging
+    flag: none
+    flag_reason: "documentation of the environment used by #14-#16 logs (torch 2.6.0.dev20241203+cu124 in the logs); the flagged repo keeps #18's pin"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H029
+    file: README.md
+    header: "@@ -59,21 +62,26 @@"
+    description: "README record list becomes the table (rows #1-#13); notes on PyTorch versions"
+    category: cosmetic
+    flag: none
+    flag_reason: documentation (README provenance tracked in EXPLORATION.md section 2)
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H030
+    file: README.md
+    header: "@@ -101,7 +109,7 @@"
+    description: README rule 1 now explicitly allows changing attention structure
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a

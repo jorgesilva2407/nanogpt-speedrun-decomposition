@@ -1,0 +1,386 @@
+# diff r14 vs r13
+# part 1: log-embedded training script (records/r13/log_source/train_gpt2.py -> records/r14/log_source/train_gpt2.py), -U1
+# part 2: all other tree files (records/r13/tree -> records/r14/tree), -U3; excluded: records/**, tree copies of train_gpt2.py, train_gpt.py
+--- a/train_gpt2.py
++++ b/train_gpt2.py
+@@ -7,2 +7,3 @@
+ import time
++import contextlib
+ from dataclasses import dataclass
+@@ -107,4 +108,3 @@
+                     buf.mul_(momentum).add_(g)
+-                    if group['nesterov']:
+-                        g = g.add(buf, alpha=momentum)
++                    g = g.add(buf, alpha=momentum) if group['nesterov'] else buf
+                     g = zeropower_backend(g, steps=group['backend_steps'])
+@@ -127,2 +127,13 @@
+ 
++def norm(x):
++    return F.rms_norm(x, (x.size(-1),))
++
++class CastedLinear(nn.Linear):
++
++    def __init__(self, in_features, out_features):
++        super().__init__(in_features, out_features, bias=False)
++
++    def forward(self, x):
++        return F.linear(x, self.weight.to(x.dtype))
++
+ class Rotary(torch.nn.Module):
+@@ -131,5 +142,3 @@
+         super().__init__()
+-        self.dim = dim
+-        self.base = base
+-        self.inv_freq = None
++        self.register_buffer('inv_freq', (1 / base) ** (torch.arange(0, dim, 2) / dim))
+         self.seq_len_cached = None
+@@ -141,22 +150,13 @@
+         if seq_len != self.seq_len_cached:
+-            self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))
++            t = torch.arange(seq_len, device=x.device)
++            freqs = torch.outer(t, self.inv_freq)
+             self.seq_len_cached = seq_len
+-            t = torch.arange(seq_len, device=x.device).type_as(self.inv_freq)
+-            freqs = torch.outer(t, self.inv_freq)
+-            self.cos_cached = freqs.cos().bfloat16()
+-            self.sin_cached = freqs.sin().bfloat16()
+-        return self.cos_cached[None, :, None, :], self.sin_cached[None, :, None, :]
+-
+-def apply_rotary_emb(x, cos, sin):
+-    assert x.ndim == 4 # multihead attention
+-    d = x.shape[3]//2
+-    x1 = x[..., :d]
+-    x2 = x[..., d:]
+-    y1 = x1 * cos + x2 * sin
+-    y2 = x1 * (-sin) + x2 * cos
+-    return torch.cat([y1, y2], 3).type_as(x)
+-
+-class CastedLinear(nn.Linear):
+-    def forward(self, x):
+-        return F.linear(x, self.weight.to(x.dtype))
++            self.cos_cached = freqs.cos()
++            self.sin_cached = freqs.sin()
++        cos, sin = self.cos_cached[None, :, None, :], self.sin_cached[None, :, None, :]
++        # apply_rotary_emb(x, cos, sin)
++        x1, x2 = x.chunk(2, dim=3)
++        y1 = x1 * cos + x2 * sin
++        y2 = x1 * (-sin) + x2 * cos
++        return torch.cat((y1, y2), 3).type_as(x)
+ 
+@@ -164,28 +164,26 @@
+ 
+-    def __init__(self, config):
++    def __init__(self, dim, n_head):
+         super().__init__()
+-        self.n_head = config.n_head
+-        self.n_embd = config.n_embd
+-        self.head_dim = self.n_embd // self.n_head
+-        assert self.n_embd % self.n_head == 0
+-        self.c_q = CastedLinear(self.n_embd, self.n_embd, bias=False)
+-        self.c_k = CastedLinear(self.n_embd, self.n_embd, bias=False)
+-        self.c_v = CastedLinear(self.n_embd, self.n_embd, bias=False)
++        assert dim % n_head == 0
++        self.n_head = n_head
++        self.c_q = CastedLinear(dim, dim)
++        self.c_k = CastedLinear(dim, dim)
++        self.c_v = CastedLinear(dim, dim)
++        # value residual lambda
++        self.lamb = nn.Parameter(torch.tensor(0.5)) # @Grad62304977
++        # rotary embeddings
++        self.rotary = Rotary(dim // n_head) # dim // n_head = head_dim
+         # output projection
+-        self.c_proj = CastedLinear(self.n_embd, self.n_embd, bias=False)
++        self.c_proj = CastedLinear(dim, dim)
+         self.c_proj.weight.data.zero_() # zero init suggested by @Grad62304977
+-        self.rotary = Rotary(self.head_dim)
+-        self.lamb = nn.Parameter(torch.tensor(0.5)) # @Grad62304977
+-
+-    def forward(self, x, v1, block_mask):
+-        B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+-        q = self.c_q(x).view(B, T, self.n_head, self.head_dim)
+-        k = self.c_k(x).view(B, T, self.n_head, self.head_dim)
+-        v = self.c_v(x).view(B, T, self.n_head, self.head_dim)
+-        if v1 is None:
+-            v1 = v # This happens if we are in the first block. v needs to be accessed by subsequent blocks
+-        v = (1 - self.lamb) * v + self.lamb * v1.view_as(v) # @Grad62304977
+-        cos, sin = self.rotary(q)
+-        q, k = F.rms_norm(q, (q.size(-1),)), F.rms_norm(k, (k.size(-1),)) # QK norm suggested by @Grad62304977
+-        q, k = apply_rotary_emb(q, cos, sin), apply_rotary_emb(k, cos, sin)
++
++    def forward(self, x, vi, block_mask):
++        B, T = x.size(0), x.size(1) # batch size, sequence length
++        assert B == 1, "Must use batch size = 1 for FlexAttention"
++        q = self.c_q(x).view(B, T, self.n_head, -1)
++        k = self.c_k(x).view(B, T, self.n_head, -1)
++        v = self.c_v(x).view(B, T, self.n_head, -1)
++        v = (1 - self.lamb) * v + self.lamb * vi.view_as(v) # @Grad62304977
++        q, k = norm(q), norm(k) # QK norm suggested by @Grad62304977
++        q, k = self.rotary(q), self.rotary(k)
+         y = flex_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), block_mask=block_mask)
+@@ -193,3 +191,3 @@
+         y = self.c_proj(y)
+-        return y, v1
++        return y
+ 
+@@ -197,6 +195,6 @@
+ 
+-    def __init__(self, config):
++    def __init__(self, dim):
+         super().__init__()
+-        self.c_fc    = CastedLinear(config.n_embd, 4 * config.n_embd, bias=False)
+-        self.c_proj  = CastedLinear(4 * config.n_embd, config.n_embd, bias=False)
++        self.c_fc   = CastedLinear(dim, 4 * dim)
++        self.c_proj = CastedLinear(4 * dim, dim)
+         self.c_proj.weight.data.zero_() # zero init suggested by @Grad62304977
+@@ -213,12 +211,11 @@
+         super().__init__()
+-        self.attn = CausalSelfAttention(config)
+-        self.mlp = MLP(config)
++        self.attn = CausalSelfAttention(config.n_embd, config.n_head)
++        self.mlp = MLP(config.n_embd)
+         self.lambdas = nn.Parameter(torch.tensor([1., 0.]))
+ 
+-    def forward(self, x, v1, x0, block_mask):
++    def forward(self, x, vi, x0, block_mask):
+         x = self.lambdas[0] * x + self.lambdas[1] * x0
+-        x1, v1 = self.attn(F.rms_norm(x, (x.size(-1),)), v1, block_mask)
+-        x = x + x1
+-        x = x + self.mlp(F.rms_norm(x, (x.size(-1),)))
+-        return x, v1
++        x = x + self.attn(norm(x), vi, block_mask)
++        x = x + self.mlp(norm(x))
++        return x
+ 
+@@ -247,5 +244,7 @@
+             wte = nn.Embedding(config.vocab_size, config.n_embd),
++            # token value embeddings by @KoszarskyB - inspired by @Grad62304977's value residual learning
++            vte = nn.Embedding(config.vocab_size, config.n_embd*12),
+             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+         ))
+-        self.lm_head = CastedLinear(config.n_embd, config.vocab_size, bias=False)
++        self.lm_head = CastedLinear(config.n_embd, config.vocab_size)
+         self.lm_head.weight.data.zero_() # @Grad62304977
+@@ -266,5 +265,5 @@
+         x = self.transformer.wte(idx[None]) # token embeddings of shape (b, t, n_embd)
+-        x = F.rms_norm(x, (x.size(-1),)) # @Grad62304977
++        x = norm(x) # @Grad62304977
+         x0 = x
+-        v1 = None
++        vi = self.transformer.vte(idx[None]).chunk(12, dim=-1)
+ 
+@@ -274,3 +273,3 @@
+         for i in range(self.num_encoder_layers):
+-            x, v1 = self.transformer.h[i](x, v1, x0, block_mask)
++            x = self.transformer.h[i](x, vi[i], x0, block_mask)
+             skip_connections.append(x)
+@@ -279,5 +278,5 @@
+             x = x + self.skip_weights[i] * skip_connections.pop()
+-            x, v1 = self.transformer.h[self.num_encoder_layers + i](x, v1, x0, block_mask)
+-
+-        x = F.rms_norm(x, (x.size(-1),))
++            x = self.transformer.h[self.num_encoder_layers + i](x, vi[self.num_encoder_layers+i], x0, block_mask)
++
++        x = norm(x)
+         logits = self.lm_head(x)
+@@ -319,6 +318,5 @@
+ class DistributedDataLoader:
+-    def __init__(self, filename_pattern, B, T, process_rank, num_processes):
++    def __init__(self, filename_pattern, T, process_rank, num_processes):
+         self.process_rank = process_rank
+         self.num_processes = num_processes
+-        self.B = B
+         self.T = T
+@@ -333,3 +331,3 @@
+             shard_ntok = _peek_data_shard(fname)
+-            assert shard_ntok >= num_processes * B * T + 1
++            assert shard_ntok >= num_processes * T + 1
+             ntok_total += int(shard_ntok)
+@@ -345,3 +343,3 @@
+         self.current_shard = (self.current_shard + 1) % len(self.files)
+-        self.current_position = self.process_rank * self.B * self.T
++        self.current_position = self.process_rank * self.T
+         self.tokens = _load_data_shard(self.files[self.current_shard])
+@@ -349,4 +347,4 @@
+     def next_batch(self):
+-        batch_size = self.B * self.T * self.num_processes
+-        buf = self.tokens[self.current_position:self.current_position+self.B*self.T+1]
++        batch_size = self.T * self.num_processes
++        buf = self.tokens[self.current_position:self.current_position+self.T+1]
+         buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
+@@ -370,7 +368,6 @@
+     batch_size : int = 8 # batch size, in sequences, across all devices
+-    device_batch_size : int = 1 # batch size, in sequences, per device
+     sequence_length : int = 64*1024 # sequence length, in tokens
+-    num_iterations : int = 1750 # number of iterations to run
++    num_iterations : int = 1530 # number of iterations to run
+     warmup_iters : int = 0
+-    cooldown_iters : int = 640 # number of iterations of linear warmup/cooldown for triangular or trapezoidal schedule
++    cooldown_iters : int = 600 # number of iterations of linear warmup/cooldown for triangular or trapezoidal schedule
+     weight_decay : float = 0
+@@ -403,3 +400,2 @@
+         # begin the log by printing this file (the Python code)
+-        f.write('='*100 + '\n')
+         f.write(code)
+@@ -421,13 +417,13 @@
+ # convenience variables
+-B, T = args.device_batch_size, args.sequence_length
++T = args.sequence_length
+ # calculate the number of steps to take in the val loop.
+-assert args.val_tokens % (B * T * ddp_world_size) == 0
+-val_steps = args.val_tokens // (B * T * ddp_world_size)
++assert args.val_tokens % (T * ddp_world_size) == 0
++val_steps = args.val_tokens // (T * ddp_world_size)
+ # calculate the steps of gradient accumulation required to attain the desired global batch size.
+-assert args.batch_size % (B * ddp_world_size) == 0
+-train_accumulation_steps = args.batch_size // (B * ddp_world_size)
++assert args.batch_size % (ddp_world_size) == 0
++train_accumulation_steps = args.batch_size // ddp_world_size
+ 
+ # load tokens
+-train_loader = DistributedDataLoader(args.input_bin, B, T, ddp_rank, ddp_world_size)
+-val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_rank, ddp_world_size)
++train_loader = DistributedDataLoader(args.input_bin, T, ddp_rank, ddp_world_size)
++val_loader = DistributedDataLoader(args.input_val_bin, T, ddp_rank, ddp_world_size)
+ print0(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
+@@ -452,12 +448,5 @@
+ 
+-# CUDNN attention is ~4ms faster than Flash, but doesn't get selected by default in PyTorch 2.5.1
+-from torch.backends.cuda import enable_cudnn_sdp, enable_flash_sdp, enable_math_sdp, enable_mem_efficient_sdp
+-enable_cudnn_sdp(True)
+-enable_flash_sdp(False)
+-enable_mem_efficient_sdp(False)
+-enable_math_sdp(False)
+-
+ # init the optimizer(s)
+-optimizer1 = torch.optim.Adam([raw_model.transformer.wte.weight], lr=0.6,   betas=(0.8, 0.95), fused=True)
+-optimizer2 = torch.optim.Adam([raw_model.lm_head.weight],         lr=0.008, betas=(0.8, 0.95), fused=True)
++optimizer1 = torch.optim.Adam([raw_model.transformer.wte.weight, raw_model.transformer.vte.weight], lr=0.6, betas=(0.8, 0.95), fused=True)
++optimizer2 = torch.optim.Adam([raw_model.lm_head.weight], lr=0.008, betas=(0.8, 0.95), fused=True)
+ params = list(raw_model.transformer.h.parameters())
+@@ -491,4 +480,2 @@
+     last_step = (step == args.num_iterations)
+-    # Set the attention blocksize for the current step, in chunks of 64
+-    attn_blocksize = torch.tensor(64*((step/args.num_iterations * (1792 - 64) + 64)//64), dtype=torch.int, device='cuda')
+     # This effectively ignores timing first 10 steps, which are slower for weird reasons.
+@@ -500,2 +487,5 @@
+     timed_steps = float('nan') if step <= 11 else (step - 10) + 1 # <= 11 to avoid bug in val
++
++    # Set the attention blocksize for the current step, in chunks of 64. By @fernbear.bsky.social
++    attn_blocksize = torch.tensor(64*((step/args.num_iterations * (1792 - 64) + 64)//64), dtype=torch.int, device='cuda')
+ 
+@@ -543,13 +533,11 @@
+     for i in range(1, train_accumulation_steps+1):
+-        # forward pass
+-        loss = model(x, y, attn_blocksize=attn_blocksize)
++        ctx = model.no_sync() if i < train_accumulation_steps else contextlib.nullcontext()
++        with ctx: # there's no need to sync gradients every accumulation step
++            # forward pass
++            loss = model(x, y, attn_blocksize=attn_blocksize)
++            # advance the dataset for the next batch
++            x, y = train_loader.next_batch()
++            # backward pass
++            loss.backward()
+         train_loss = loss.detach()
+-        # advance the dataset for the next batch
+-        x, y = train_loader.next_batch()
+-        # backward pass
+-        if i < train_accumulation_steps:
+-            with model.no_sync(): # there's no need to sync gradients every accumulation step
+-                loss.backward()
+-        else:
+-            loss.backward() # just sync on the last step
+     for p in model.parameters():
+@@ -577,2 +565,2 @@
+ # clean up nice
+-dist.destroy_process_group()
++dist.destroy_process_group()
+\ No newline at end of file
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@
+ 
+ It uses the following techniques:
+ * Modernized architecture: Rotary embeddings, QK-Norm, and ReLU^2.
+-* New optimizer: Muon - Momentum Orthogonalized by Newton-schulz.
++* New optimizer: [Muon - Momentum Orthogonalized by Newton-schulz](https://github.com/KellerJordan/Muon).
+ * Untied head from embedding.
+ * Projection and classification layers initialized to zero (muP-like).
+ * Architectural shortcuts: value residual and embedding shortcut (partially following https://arxiv.org/abs/2410.17897).
+@@ -16,7 +16,8 @@
+ * FlexAttention with window size warmup.
+ 
+ The training has attained this speed due to the contributions of meself, [@Grad62304977](https://x.com/Grad62304977),
+-[@jxbz](https://x.com/jxbz), [@bozavlado](https://x.com/bozavlado), [@brendanh0gan](https://x.com/brendanh0gan), [@KoszarskyB](https://x.com/KoszarskyB), & [@fernbear.bsky.social](https://bsky.app/profile/fernbear.bsky.social)
++[@jxbz](https://x.com/jxbz), [@bozavlado](https://x.com/bozavlado), [@brendanh0gan](https://x.com/brendanh0gan),
++[@KoszarskyB](https://x.com/KoszarskyB), & [@fernbear.bsky.social](https://bsky.app/profile/fernbear.bsky.social).
+ 
+ ---
+ 
+@@ -26,13 +27,15 @@
+ They should all complete within <20min on an 8xH100 with decent internet connection.
+ ```bash
+ pip install -r requirements.txt
+-pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu124 --upgrade # install torch 2.6.0
++pip install --pre torch==2.6.0.dev20241203+cu124 --index-url https://download.pytorch.org/whl/nightly/cu124 --upgrade # install torch 2.6.0
+ python data/cached_fineweb10B.py 10 # downloads only the first 1.0B training tokens to save time
+ ./run.sh
+ ```
+ 
+ The result will be a transformer with 124M active parameters trained for 1750 steps on 0.9B tokens of Fineweb [1], achieving ~3.278 mean validation loss (w/ up to 0.005 inter-run stddev).
+ For comparison, the default llm.c PyTorch trainer yields [>3.28 validation loss after training for 19560 steps on 10B tokens](https://github.com/karpathy/llm.c/discussions/481#:~:text=By%20the%20end%20of%20the%20optimization%20we%27ll%20get%20to%20about%203.29).
++
++**Note: torch.compile will take a while on the first run.**
+ 
+ ## Running it on fewer GPUs or with less memory
+ 
+@@ -59,21 +62,26 @@
+ 
+ The following is the progression of world records for the task of *training a model with 124M active parameters to 3.28 validation loss on FineWeb in the minimal amount of time on an 8xH100 machine.*
+ 
+-1. [45 minutes: llm.c baseline](https://github.com/karpathy/llm.c/discussions/481) (05/28/24) [[training log](./records/101324_llmc/main.log)] (note: the 90 minute time is on 8xA100; it's 45 minutes on 8xH100. This run is essentially a hardware-optimized GPT-2 (small) replication using better training data.)
+-2. [31.4 minutes: Architectural modernizations and learning rate tuning](https://x.com/kellerjordan0/status/1798863559243513937) (06/06/24) [[training log](./records/060624_AdamW/f66d43d7-e449-4029-8adf-e8537bab49ea.log)]
+-3. [24.9 minutes: Introduced the Muon optimizer](https://x.com/kellerjordan0/status/1842300916864844014) (10/04/24)
+-4. [22.3 minutes: Muon improvements](https://x.com/kellerjordan0/status/1844820919061287009) (10/11/24) [[reproducible log](./records/101024_Muon/eb5659d0-fb6a-49e5-a311-f1f89412f726.txt)]
+-5. [15.2 minutes: Pad embeddings & architectural modernizations](https://x.com/kellerjordan0/status/1845865698532450646) (10/14/24) [[reproducible log](./records/101424_ModernArch/dabaaddd-237c-4ec9-939d-6608a9ed5e27.txt)]
+-6. [13.1 minutes: Distributed the overhead of Muon](https://x.com/kellerjordan0/status/1847291684016783746) (10/18/24) [[reproducible log](./records/101724_DistributedMuon/22d24867-eb5a-4fcc-ae2c-263d0277dfd1.txt)]
+-7. [12.0 minutes: Upgraded PyTorch from 2.4.1 to 2.5.0](https://x.com/kellerjordan0/status/1847358578686152764) (10/18/24) [[reproducible log](./records/101824_PyTorch25/d4bfb25f-688d-4da5-8743-33926fad4842.txt)]
+-8. [10.8 minutes: Untied embed and lm_head](https://x.com/kellerjordan0/status/1853188916704387239) (11/03/24) [[reproducible log](./records/110324_UntieEmbed/d6b50d71-f419-4d26-bb39-a60d55ae7a04.txt)]
+-9. [8.2 minutes: Shortcuts & tweaks](https://x.com/kellerjordan0/status/1854296101303800108) (11/06/24) [[reproducible log](./records/110624_ShortcutsTweaks/dd7304a6-cc43-4d5e-adb8-c070111464a1.txt)]
+-11. [7.8 minutes: Bfloat16 activations](https://x.com/kellerjordan0/status/1855267054774865980) (11/08/24) [[reproducible log](./records/110824_CastBf16/a833bed8-2fa8-4cfe-af05-58c1cc48bc30.txt)]
+-12. [7.23 minutes: U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) (11/10/24) [[reproducible log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt)]
+-13. [5.03 minutes: FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) (11/19/24) [[reproducible log](./records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt)] (requires PyTorch 2.6.0)
+-14. [4.66 minutes: Window Warmup]() (11/24/24) [[reproducible log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt)]
+-
+-Please see the X threads for the contributors to each record.
++| # | Record time | Description | Date | Log | Contributors |
++| - | - | - | - | - | - |
++1 | 45 minutes | [llm.c baseline](https://github.com/karpathy/llm.c/discussions/481) | 05/28/24 | [log](./records/101324_llmc/main.log) | @karpathy, llm.c contributors
++2 | 31.4 minutes | [Architectural modernizations & tuned learning rate](https://x.com/kellerjordan0/status/1798863559243513937) | 06/06/24 | [log](./records/060624_AdamW/f66d43d7-e449-4029-8adf-e8537bab49ea.log) | @kellerjordan0
++3 | 24.9 minutes | [Introduced the Muon optimizer](https://x.com/kellerjordan0/status/1842300916864844014) | 10/04/24 | none | @kellerjordan0, @jxbz
++4 | 22.3 minutes | [Muon improvements](https://x.com/kellerjordan0/status/1844820919061287009) | 10/11/24 | [log](./records/101024_Muon/eb5659d0-fb6a-49e5-a311-f1f89412f726.txt) | @kellerjordan0, @bozavlado
++5 | 15.2 minutes | [Pad embeddings & architectural improvements](https://x.com/kellerjordan0/status/1845865698532450646) | 10/14/24 | [log](./records/101424_ModernArch/dabaaddd-237c-4ec9-939d-6608a9ed5e27.txt) | @Grad62304977, @kellerjordan0
++6 | 13.1 minutes | [Distributed the overhead of Muon](https://x.com/kellerjordan0/status/1847291684016783746) | 10/18/24 | [log](./records/101724_DistributedMuon/22d24867-eb5a-4fcc-ae2c-263d0277dfd1.txt) | @kellerjordan0
++7 | 12.0 minutes | [Upgraded PyTorch from 2.4.1 to 2.5.0](https://x.com/kellerjordan0/status/1847358578686152764) | 10/18/24 | [log](./records/101824_PyTorch25/d4bfb25f-688d-4da5-8743-33926fad4842.txt) | @kellerjordan0
++8 | 10.8 minutes | [Untied embed and lm_head](https://x.com/kellerjordan0/status/1853188916704387239) | 11/03/24 | [log](./records/110324_UntieEmbed/d6b50d71-f419-4d26-bb39-a60d55ae7a04.txt) | @Grad62304977, @kellerjordan0
++9 | 8.2 minutes | [Shortcuts & tweaks](https://x.com/kellerjordan0/status/1854296101303800108) | 11/06/24 | [log](./records/110624_ShortcutsTweaks/dd7304a6-cc43-4d5e-adb8-c070111464a1.txt) | @Grad62304977, @kellerjordan0
++10 | 7.8 minutes | [Bfloat16 activations](https://x.com/kellerjordan0/status/1855267054774865980) | 11/08/24 | [log](./records/110824_CastBf16/a833bed8-2fa8-4cfe-af05-58c1cc48bc30.txt) | @kellerjordan0
++11 | 7.2 minutes | [U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan
++12 | 5.03 minutes | [FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](./records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB
++13 | 4.66 minutes | [Attention window warmup](https://x.com/hi_tysam/status/1860851011797053450) | 11/24/24 | [log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social
++
++Notes:
++* For the llm.c baseline: The 90 minute time is on 8xA100; it's 45 minutes on 8xH100. This baseline is essentially a hardware-optimized GPT-2-small replication using better training data.
++* All runs before 11/19/24 can be run with PyTorch 2.5.1 or below. Runs including and after 11/19/24 require PyTorch 2.6.0 (nightly) to use FlexAttention.
++* For more details on methods & authorship, see the linked post associated with each record.
+ 
+ <!--Note: The original llm.c baseline is intended to be closer to a replication of GPT-2 than to an optimized LLM training.
+ So it's no surprise that there is room to improve; as @karpathy has said, 'llm.c still has a lot of pending optimizations.'
+@@ -101,7 +109,7 @@
+ 
+ ### Speedrun rules
+ 
+-1. Must not modify the train or validation data pipelines. (Except to change batch size & seqlen. I.e., just don't change the order of the tokens.)
++1. Must not modify the train or validation data pipelines. (Except to change batch size, seqlen, attention structure etc. I.e., just don't change the order of the tokens.)
+ 2. Must use ≤ 124M active parameters per token. (So MoE is OK, and the untied embedding matrix only contributes hidden_dim active params.)
+ 3. Must attain ≤ 3.28 val loss. (A tasteful number would be 3.278, so that the gap exceeds the inter-run variance.)
+ 

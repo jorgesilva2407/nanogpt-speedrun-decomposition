@@ -37,6 +37,7 @@ flag:doc_masking            snapshot=True                                   pres
 flag:flex_kernel            snapshot=True                                   preset=True                                   match
 flag:long_context           snapshot=True                                   preset=True                                   match
 flag:rotary_variant         snapshot=v12                                    preset=v12                                    match
+flag:value_embeds           snapshot=False                                  preset=False                                  match
 flag:window_warmup          snapshot=False                                  preset=False                                  match
 configs/r12.yaml: 0 mismatches
 ledger:

@@ -1,0 +1,55 @@
+# static gates for r14
+syntax: PASS
+constants:
+adam_betas                  snapshot=[0.8, 0.95]                            preset=[0.8, 0.95]                            match
+attn_window                 snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+global_batch_tokens         snapshot=524288                                 preset=524288                                 match
+input_bin                   snapshot=data/fineweb10B/fineweb_train_*.bin    preset=data/fineweb10B/fineweb_train_*.bin    match
+input_val_bin               snapshot=data/fineweb10B/fineweb_val_*.bin      preset=data/fineweb10B/fineweb_val_*.bin      match
+loader_replay_first_round   snapshot=False                                  preset=False                                  match
+loader_shard_rule           snapshot=ge                                     preset=ge                                     match
+logit_softcap               snapshot=30                                     preset=30                                     match
+lr_embed                    snapshot=0.6                                    preset=0.6                                    match
+lr_head                     snapshot=0.008                                  preset=0.008                                  match
+lr_muon                     snapshot=0.05                                   preset=0.05                                   match
+lr_scalar                   snapshot=0.04                                   preset=0.04                                   match
+micro_batch_tokens          snapshot=65536                                  preset=65536                                  match
+muon_momentum               snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_end    snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_start  snapshot=0.85                                   preset=0.85                                   match
+muon_momentum_warmup_steps  snapshot=300                                    preset=300                                    match
+n_embd                      snapshot=768                                    preset=768                                    match
+n_head                      snapshot=6                                      preset=6                                      match
+n_layer                     snapshot=12                                     preset=12                                     match
+num_iterations              snapshot=1530                                   preset=1530                                   match
+save_every                  snapshot=0                                      preset=0                                      match
+sequence_length             snapshot=-                                      preset=1024                                   NOT EXTRACTABLE (absent in snapshot)
+val_loss_every              snapshot=125                                    preset=125                                    match
+val_tokens                  snapshot=10485760                               preset=10485760                               match
+vocab_size                  snapshot=50304                                  preset=50304                                  match
+warmdown_iters              snapshot=600                                    preset=600                                    match
+warmup_iters                snapshot=0                                      preset=0                                      match
+weight_decay                snapshot=0                                      preset=0                                      match
+window_warmup_end           snapshot=1792                                   preset=1792                                   match
+window_warmup_quantum       snapshot=64                                     preset=64                                     match
+window_warmup_start         snapshot=64                                     preset=64                                     match
+flag:doc_masking            snapshot=True                                   preset=True                                   match
+flag:flex_kernel            snapshot=True                                   preset=True                                   match
+flag:long_context           snapshot=True                                   preset=True                                   match
+flag:rotary_variant         snapshot=v14                                    preset=v14                                    match
+flag:value_embeds           snapshot=True                                   preset=True                                   match
+flag:window_warmup          snapshot=True                                   preset=True                                   match
+configs/r14.yaml: 0 mismatches
+ledger:
+ledger/r14.yaml: 30 hunks in diff, 30 ledger entries, 0 problems
+params: snapshot total 625,803,306 (625.8M) {'other': 6, 'embed': 38633472, 'value_embeddings': 463601664, 'blocks': 84934692, 'lm_head': 38633472}
+params: flagged  total 625,803,306 (625.8M) {'embed': 38633472, 'value_embeddings': 463601664, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}
+params: 100 tensors in snapshot, 100 in flagged; buffers snapshot=12 flagged=12
+params: PASS (names and shapes identical after name map)
+loader:
+world_size=1: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=2: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=4: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=8: first step whose micro-batches differ from the 8-GPU record stream: None
+(shard boundaries crossed in the record stream at steps [22, 23, 44, 46, 67, 69]...; first two steps: [0, 32], [256, 288])
+SUMMARY: syntax=PASS constants=PASS ledger=PASS params=PASS loader=PASS
