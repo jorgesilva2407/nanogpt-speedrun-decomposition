@@ -405,8 +405,17 @@ def load_config(path):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', required=True, help='preset or resolved config (configs/rNN.yaml or resolved .json)')
+parser.add_argument('--seed', type=int, required=True, help='seeds python, numpy, torch CPU and all CUDA generators')
 cli = parser.parse_args()
 run_config, args = load_config(cli.config)
+
+# seeding (infra; see CHANGES/infra.md for what this does and does not control). Every rank uses the same
+# seed, so every rank builds the same initial weights before DDP's rank-0 broadcast.
+import random
+random.seed(cli.seed)
+np.random.seed(cli.seed)
+torch.manual_seed(cli.seed)
+torch.cuda.manual_seed_all(cli.seed)
 
 # set up DDP (distributed data parallel). torchrun sets this env variable
 assert torch.cuda.is_available()
