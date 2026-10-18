@@ -1,0 +1,3 @@
+# The image only needs requirements.txt (launch/Dockerfile); code is cloned on the host at a commit.
+*
+!requirements.txt
