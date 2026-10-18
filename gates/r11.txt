@@ -1,0 +1,47 @@
+# static gates for r11
+syntax: PASS
+constants:
+adam_betas                  snapshot=[0.9, 0.95]                            preset=[0.9, 0.95]                            match
+global_batch_tokens         snapshot=524288                                 preset=524288                                 match
+input_bin                   snapshot=data/fineweb10B/fineweb_train_*.bin    preset=data/fineweb10B/fineweb_train_*.bin    match
+input_val_bin               snapshot=data/fineweb10B/fineweb_val_*.bin      preset=data/fineweb10B/fineweb_val_*.bin      match
+loader_replay_first_round   snapshot=True                                   preset=True                                   match
+loader_shard_rule           snapshot=gt_plus1                               preset=gt_plus1                               match
+logit_softcap               snapshot=30                                     preset=30                                     match
+lr_embed                    snapshot=0.6                                    preset=0.6                                    match
+lr_head                     snapshot=0.008                                  preset=0.008                                  match
+lr_muon                     snapshot=0.04                                   preset=0.04                                   match
+lr_scalar                   snapshot=0.04                                   preset=0.04                                   match
+micro_batch_tokens          snapshot=65536                                  preset=65536                                  match
+muon_momentum               snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_end    snapshot=0.95                                   preset=0.95                                   match
+muon_momentum_warmup_start  snapshot=0.85                                   preset=0.85                                   match
+muon_momentum_warmup_steps  snapshot=500                                    preset=500                                    match
+n_embd                      snapshot=768                                    preset=768                                    match
+n_head                      snapshot=6                                      preset=6                                      match
+n_layer                     snapshot=12                                     preset=12                                     match
+num_iterations              snapshot=3000                                   preset=3000                                   match
+save_every                  snapshot=0                                      preset=0                                      match
+sequence_length             snapshot=1024                                   preset=1024                                   match
+val_loss_every              snapshot=125                                    preset=125                                    match
+val_tokens                  snapshot=10485760                               preset=10485760                               match
+vocab_size                  snapshot=50304                                  preset=50304                                  match
+warmdown_iters              snapshot=900                                    preset=900                                    match
+warmup_iters                snapshot=0                                      preset=0                                      match
+weight_decay                snapshot=0                                      preset=0                                      match
+configs/r11.yaml: 0 mismatches
+params: snapshot total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}
+params: flagged  total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}
+params: 99 tensors in snapshot, 99 in flagged; buffers snapshot=0 flagged=0
+params: expected total 162,201,642 -> flagged 162,201,642 PASS
+params: expected embed 38,633,472 -> flagged 38,633,472 PASS
+params: expected lm_head 38,633,472 -> flagged 38,633,472 PASS
+params: expected blocks 84,934,692 -> flagged 84,934,692 PASS
+params: PASS (names and shapes identical after name map)
+loader:
+world_size=1: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=2: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=4: first step whose micro-batches differ from the 8-GPU record stream: None
+world_size=8: first step whose micro-batches differ from the 8-GPU record stream: None
+(shard boundaries crossed in the record stream at steps [23, 24, 45, 47, 68, 70]...; first two steps: [0, 32], [0, 32])
+SUMMARY: syntax=PASS constants=PASS params=PASS loader=PASS
