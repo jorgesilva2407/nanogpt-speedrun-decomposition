@@ -416,10 +416,18 @@ hunks:
   - block_window
   - code_opts_15
   provenance: direct
-  bundled: false
+  bundled: true
   numerics: changed
   coupled:
   - 'window_warmup_start: with window_warmup_quantum gives the step-0 block count int((64 + 64)//128) = 1'
+  parts:
+  - what: the window tensor now holds a block count (block schedule)
+    flag: block_window
+    category: model-mechanism
+  - what: still one persistent tensor updated in place (rec-15 implementation)
+    flag: code_opts_15
+    category: throughput-only
+    numerics: identical
 - id: H037
   file: train_gpt2.py
   header: '@@ -512,7 +532,8 @@'
