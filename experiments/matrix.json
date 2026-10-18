@@ -1,0 +1,702 @@
+{
+ "generated_by": "experiments/matrix.py",
+ "study": {
+  "presets": {
+   "floor": "configs/r11.yaml",
+   "ceiling": "configs/r18.yaml"
+  },
+  "seeds": {
+   "default": 3,
+   "rq2": 5,
+   "first_seed": 0
+  },
+  "rq2_arms": [
+   "A1a",
+   "A1b",
+   "A2",
+   "A3",
+   "A4",
+   "A4b",
+   "A5",
+   "A5b",
+   "A6",
+   "A6b",
+   "A7"
+  ],
+  "adamw_lr_sweep": {
+   "values": [
+    0.0009,
+    0.0018,
+    0.0036
+   ],
+   "bases": [
+    "r18",
+    "r11"
+   ]
+  },
+  "rq3b": {
+   "budget_scales": [
+    0.5,
+    0.75
+   ],
+   "resolved_arms": [],
+   "absolute_step_hparams": [
+    "warmdown_iters",
+    "warmup_iters",
+    "muon_momentum_warmup_steps"
+   ]
+  },
+  "validation": {
+   "mode": "v8"
+  },
+  "split_subarms": false,
+  "loo_prerequisite_policy": "undecided",
+  "throughput": {
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  "cross_hardware": {
+   "exp_id": "fp_r18",
+   "seed": 0,
+   "hosts": [
+    "lab-a100",
+    "rented-h100"
+   ]
+  }
+ },
+ "configurations": [
+  {
+   "exp_id": "fp_r11",
+   "family": "fp",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "2f10a59051c1795d96bcce05ed88a6f5bb43e327c4951dea230ddee4e2ece01f",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "fp_r18",
+   "family": "fp",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "5af133e81b0e5277a35bafeb34fb7b410a74a4cacd30c9778f611eb131a53e89",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A1a",
+   "family": "aoi",
+   "arm": "A1a",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "7870def739090972b4f92c6def771d05ed7ee8f24ee05bb248cb09707d213635",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "aoi_A1b",
+   "family": "aoi",
+   "arm": "A1b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "8ce9e0275fbb6f47850dceca16a5c9b2d480dd31df75fea1bff28b8ad7887a0b",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "long_context"
+    },
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "doc_masking"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "aoi_A2",
+   "family": "aoi",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "28580a698d9ff14e740c875803d2ee41f56758a599ba1981b81024e091f68e7e",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "window_warmup"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A2",
+   "family": "loo",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "2765912b48dcdc2651618dda9af2d6f18feca55d89e2e6b85a58dc92b1f83518",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A3",
+   "family": "aoi",
+   "arm": "A3",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "315199663a8c51b0d456609de360dac61f44d66fd1d7b65741a5a88d182cd97a",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "aoi_A4",
+   "family": "aoi",
+   "arm": "A4",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "912641f835dd0779fd6af9d3535247b2d3596faad486928277b55dbea25f1371",
+   "prerequisites_added": [
+    {
+     "flag": "value_embeds",
+     "arm": "A3",
+     "required_by": "ve_unet"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "aoi_A4b",
+   "family": "aoi",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "074b09638490d5d1ace940cfbea33247064817bcbd84fdaf901658ffb4a4f69e",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "blockmask_manual"
+    },
+    {
+     "flag": "long_context",
+     "arm": "A1b",
+     "required_by": "blockmask_manual"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A4b",
+   "family": "loo",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "0b15e6064dfa308312bce7803c2e5b7889c853442625009bde4baa26944fb4cc",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A5",
+   "family": "aoi",
+   "arm": "A5",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "127f1cce86b4972f8913158329227120742e92f65093d6fbe90362edd646e039",
+   "prerequisites_added": [
+    {
+     "flag": "ve_unet",
+     "arm": "A4",
+     "required_by": "ve_split"
+    },
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "block_window"
+    },
+    {
+     "flag": "long_context",
+     "arm": "A1b",
+     "required_by": "block_window"
+    },
+    {
+     "flag": "value_embeds",
+     "arm": "A3",
+     "required_by": "ve_unet"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "aoi_A5b",
+   "family": "aoi",
+   "arm": "A5b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "db909a55b0e2d8e2f20d415c58bfbc0207fee65429b57526cf30b041c699c2b2",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A5b",
+   "family": "loo",
+   "arm": "A5b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "f73b10d29a8b3e075515d7096ec27dfae7aa12f88c19543e718a44901fbf2883",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A6",
+   "family": "aoi",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "67bf66002955f4abe28b1ebbd41e0ba48801779da215dffedd2b39fd75289956",
+   "prerequisites_added": [
+    {
+     "flag": "ve_split",
+     "arm": "A5",
+     "required_by": "ve_sparsify"
+    },
+    {
+     "flag": "ve_unet",
+     "arm": "A4",
+     "required_by": "ve_split"
+    },
+    {
+     "flag": "value_embeds",
+     "arm": "A3",
+     "required_by": "ve_unet"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A6",
+   "family": "loo",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "74ab36b596afaa93a518d777438820e89c67e411b13a49ca5dcc5a97370313ec",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A6b",
+   "family": "aoi",
+   "arm": "A6b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "12286cf50d0d484487175217621c86443590143e146fd58079c3cd13f7caa36d",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A6b",
+   "family": "loo",
+   "arm": "A6b",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "5deddb2afce552ba1c94b54cc9f4275edf51433ff3a95ecedbb96c78431a0083",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "aoi_A7",
+   "family": "aoi",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "a266bfbc888c2943a09d128a16544b633f919e9176c26efc02236c3424546f50",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "loo_A7",
+   "family": "loo",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "config_hash": "615be30af4b94ce20fe22729b11d78abada7b7a4388513594b4c914e3cf15db5",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "ctrl_A8_r18",
+   "family": "ctrl",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "4eec47a472134c3992c766216532ba67d5a9c238bf9e377b8889985a7d0c02a2",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "ctrl_A8_r11",
+   "family": "ctrl",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "0219dc2b097043428788596e93bf204e5433d1e357777631bf082188f7b0005d",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "sweep_A8_lr0.0009_r18",
+   "family": "sweep",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "85ff2607b8e6f8113579476b45a9b94d4e18879a9e1a079f2e6d5a0578e54645",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "sweep_A8_lr0.0036_r18",
+   "family": "sweep",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "702ee05f7648ec0ca69bbf6b5ad6bc55d97e364a961907570c4877aad427150a",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "sweep_A8_lr0.0009_r11",
+   "family": "sweep",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "879e2094aceaf10f4940b75d1ff099633d1d48bd896dff8577287b83cb19c34a",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "sweep_A8_lr0.0036_r11",
+   "family": "sweep",
+   "arm": "A8",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "7aeddffe2a4bde480f21405c52ff4b66e1c62e81c1cfe411c86e57a14ded0b46",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  }
+ ],
+ "open_decisions": [
+  {
+   "id": "LOO-A1a",
+   "arm": "A1a",
+   "name": "FlexAttention kernel",
+   "meaning": "r18 minus A1a is undefined: switches that stay on in r18 require it (long_context requires flex_kernel, doc_masking requires flex_kernel, window_warmup requires flex_kernel, blockmask_manual requires flex_kernel, block_window requires flex_kernel).",
+   "dependant_switches": [
+    "block_window",
+    "blockmask_manual",
+    "blockmask_separate",
+    "doc_masking",
+    "long_context",
+    "window_warmup"
+   ],
+   "dependant_arms": [
+    "A1b",
+    "A2",
+    "A4b",
+    "A5"
+   ],
+   "status": "open decision: no configuration emitted"
+  },
+  {
+   "id": "LOO-A1b",
+   "arm": "A1b",
+   "name": "64K-ctx sliding window + document masking",
+   "meaning": "r18 minus A1b is undefined: switches that stay on in r18 require it (blockmask_manual requires long_context, block_window requires long_context).",
+   "dependant_switches": [
+    "block_window",
+    "blockmask_manual",
+    "blockmask_separate"
+   ],
+   "dependant_arms": [
+    "A4b",
+    "A5"
+   ],
+   "status": "open decision: no configuration emitted"
+  },
+  {
+   "id": "LOO-A3",
+   "arm": "A3",
+   "name": "value embeddings (VE rung 1)",
+   "meaning": "r18 minus A3 is undefined: switches that stay on in r18 require it (ve_unet requires value_embeds).",
+   "dependant_switches": [
+    "ve_sparsify",
+    "ve_split",
+    "ve_unet"
+   ],
+   "dependant_arms": [
+    "A4",
+    "A5",
+    "A6"
+   ],
+   "status": "open decision: no configuration emitted"
+  },
+  {
+   "id": "LOO-A4",
+   "arm": "A4",
+   "name": "U-net value embeddings (VE rung 2)",
+   "meaning": "r18 minus A4 is undefined: switches that stay on in r18 require it (ve_split requires ve_unet).",
+   "dependant_switches": [
+    "ve_sparsify",
+    "ve_split"
+   ],
+   "dependant_arms": [
+    "A5",
+    "A6"
+   ],
+   "status": "open decision: no configuration emitted"
+  },
+  {
+   "id": "LOO-A5",
+   "arm": "A5",
+   "name": "split VE + block sliding window + separate block mask (VE rung 3)",
+   "meaning": "r18 minus A5 is undefined: switches that stay on in r18 require it (ve_sparsify requires ve_split).",
+   "dependant_switches": [
+    "ve_sparsify"
+   ],
+   "dependant_arms": [
+    "A6"
+   ],
+   "status": "open decision: no configuration emitted"
+  }
+ ],
+ "throughput_jobs": [
+  {
+   "exp_id": "fp_r11",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "fp_r18",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A1a",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A1b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A2",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A2",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A3",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A4",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A4b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A4b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A5",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A5b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A5b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A6",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A6",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A6b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A6b",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "aoi_A7",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "loo_A7",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "ctrl_A8_r18",
+   "steps": 300,
+   "host": "lab-a100"
+  },
+  {
+   "exp_id": "ctrl_A8_r11",
+   "steps": 300,
+   "host": "lab-a100"
+  }
+ ],
+ "cross_hardware": {
+  "exp_id": "fp_r18",
+  "seed": 0,
+  "hosts": [
+   "lab-a100",
+   "rented-h100"
+  ]
+ }
+}

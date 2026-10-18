@@ -12,7 +12,6 @@ arms:
     record: 12
     flags: {flex_kernel: [false, true]}
     prediction_ref: flexattention_kernel
-    rq2: false
   - id: A1b
     name: 64K-ctx sliding window + document masking
     record: 12
@@ -21,20 +20,17 @@ arms:
       - {id: A1b.ctx, flags: [long_context], separable: true}
       - {id: A1b.doc, flags: [doc_masking], separable: true}
     prediction_ref: context_64k
-    rq2: true
   - id: A2
     name: attention window warmup
     record: 13
     flags: {window_warmup: [false, true]}
     prediction_ref: window_warmup
-    rq2: true
   - id: A3
     name: value embeddings (VE rung 1)
     record: 14
     flags: {value_embeds: [false, true]}
     ve_rung: 1
     prediction_ref: value_embeddings
-    rq2: true
   - id: A4
     name: U-net value embeddings (VE rung 2)
     record: 15
@@ -44,7 +40,6 @@ arms:
       - {id: A4.lambdas2, flags: [ve_lambdas2], separable: true}
     ve_rung: 2
     prediction_ref: unet_ve
-    rq2: true
   - id: A4b
     name: "#15 assorted code optimizations"
     record: 15
@@ -54,7 +49,6 @@ arms:
       - {id: A4b.ema, flags: [muon_ema_momentum], separable: true}
       - {id: A4b.blockmask, flags: [blockmask_manual], separable: true}
     prediction_ref: unet_ve
-    rq2: false
     note: "proposal reports it with A4 ('split out or report as a pair'); split here"
   - id: A5
     name: split VE + block sliding window + separate block mask (VE rung 3)
@@ -66,13 +60,11 @@ arms:
       - {id: A5.sepmask, flags: [blockmask_separate], separable: true}
     ve_rung: 3
     prediction_ref: split_ve_block_window
-    rq2: true
   - id: A5b
     name: "#16 MFU tweaks"
     record: 16
     flags: {code_opts_16: [false, true]}
     prediction_ref: split_ve_block_window
-    rq2: false
   - id: A6
     name: sparsified VE + improved rotary (VE rung 4)
     record: 17
@@ -82,27 +74,22 @@ arms:
       - {id: A6.rope, flags: [rope_half_truncate], separable: true}
     ve_rung: 4
     prediction_ref: sparsified_ve_rotary
-    rq2: true
   - id: A6b
     name: dropped attention layer (capacity change)
     record: 17
     flags: {drop_attn_layer: [false, true]}
     prediction_ref: dropped_attention_layer
-    rq2: true
   - id: A7
     name: logit softcap 30 -> 15
     record: 18
     config: {logit_softcap: [30, 15]}
     prediction_ref: softcap
-    rq2: true
   - id: A8
     name: Muon -> AdamW (positive control)
     record: 3
     flags: {optimizer: [muon, adamw]}
     direction: removal_from_both   # Muon is in both fixed points: both configurations swap it out
     prediction_ref: muon_adamw
-    rq2: false
-    adamw_lr_sweep: [0.0009, 0.0018, 0.0036]
 non_arm_switches:
   flags: [rotary_variant, fp32_small_params, code_opts_17, code_opts_18]
   config: [loader_shard_rule, loader_replay_first_round, lr_schedule_form, cooldown_frac, embed_vocab_size, window_block_formula]
