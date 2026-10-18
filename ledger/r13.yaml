@@ -1,0 +1,183 @@
+record: 13
+title: "Attention window warmup"
+snapshot_from: r12
+snapshot_to: r13
+diff: diffs/r13-vs-r12.diff
+hunks:
+  - id: H001
+    file: train_gpt2.py
+    header: "@@ -16,2 +16,3 @@"
+    description: credit comment above the FlexAttention import
+    category: cosmetic
+    flag: none
+    flag_reason: comment
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H002
+    file: train_gpt2.py
+    header: "@@ -251,3 +252,3 @@"
+    description: GPT.forward takes attn_blocksize (the step's window)
+    category: model-mechanism
+    flag: window_warmup
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H003
+    file: train_gpt2.py
+    header: "@@ -257,3 +258,3 @@"
+    description: "window mask uses the step's attn_blocksize tensor instead of the constant 1024"
+    category: model-mechanism
+    flag: window_warmup
+    provenance: direct
+    bundled: false
+    numerics: changed
+    note: "with window_warmup off the flagged trainer uses attn_window (1024), i.e. the r12 mask"
+  - id: H004
+    file: train_gpt2.py
+    header: "@@ -371,5 +372,5 @@"
+    description: "num_iterations 1875 -> 1750; warmdown_iters 562 renamed cooldown_iters and set to 640"
+    category: hyperparameter/schedule
+    flag: ["config:num_iterations", "config:warmdown_iters"]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    coupled:
+      - "num_iterations: co-tuned with #13; window schedule is expressed as step/num_iterations, so it rescales automatically"
+      - "warmdown_iters: absolute-step schedule (640/1750 = 0.3657), coupled to num_iterations; rescale under RQ3b"
+    note: "the rename warmdown -> cooldown is cosmetic; the flagged config keeps the key warmdown_iters"
+  - id: H005
+    file: train_gpt2.py
+    header: "@@ -459,4 +460,4 @@"
+    description: "Adam betas (0.9, 0.95) -> (0.8, 0.95) for the embedding and head optimizers"
+    category: hyperparameter/schedule
+    flag: "config:adam_betas"
+    provenance: direct
+    bundled: false
+    numerics: changed
+    coupled:
+      - "adam_betas: co-tuned with #13 (not mentioned in the README row 'Attention window warmup'); not mechanically coupled to a flag"
+  - id: H006
+    file: train_gpt2.py
+    header: "@@ -464,6 +465,6 @@"
+    description: "Muon lr 0.04 -> 0.05; scalar Adam betas (0.9, 0.95) -> (0.8, 0.95); comment warmdown -> cooldown"
+    category: hyperparameter/schedule
+    flag: ["config:lr_muon", "config:adam_betas"]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    coupled:
+      - "lr_muon: co-tuned with #13 (unannounced); not mechanically coupled to a flag"
+  - id: H007
+    file: train_gpt2.py
+    header: "@@ -474,7 +475,7 @@"
+    description: "get_lr reads cooldown_iters (renamed from warmdown_iters); comments"
+    category: cosmetic
+    flag: none
+    flag_reason: rename only; same schedule formula
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H008
+    file: train_gpt2.py
+    header: "@@ -490,2 +491,4 @@"
+    description: "per-step window: attn_blocksize = 64*((step/N * (1792 - 64) + 64)//64) as an int32 CUDA tensor (64 -> 1792 tokens in steps of 64)"
+    category: model-mechanism
+    flag: [window_warmup, "config:window_warmup_start", "config:window_warmup_end", "config:window_warmup_quantum"]
+    provenance: direct
+    bundled: false
+    numerics: changed
+    coupled:
+      - "window_warmup_start: mechanically coupled to window_warmup (64)"
+      - "window_warmup_end: mechanically coupled to window_warmup (1792; exceeds r12's fixed 1024)"
+      - "window_warmup_quantum: mechanically coupled to window_warmup (64)"
+    note: "statement placed before the step-10 timer reset, as in the log source (the code commit 759b8fc places it after; timing bookkeeping only)"
+  - id: H009
+    file: train_gpt2.py
+    header: "@@ -510,3 +513,3 @@"
+    description: validation forward receives attn_blocksize (validation uses the current step's window)
+    category: model-mechanism
+    flag: window_warmup
+    provenance: direct
+    bundled: false
+    numerics: changed
+  - id: H010
+    file: train_gpt2.py
+    header: "@@ -541,3 +544,3 @@"
+    description: training forward receives attn_blocksize
+    category: model-mechanism
+    flag: window_warmup
+    provenance: direct
+    bundled: false
+    numerics: changed
+  - id: H011
+    file: train_gpt2.py
+    header: "@@ -554,3 +557,3 @@"
+    description: "Muon momentum warmup over 500 -> 300 steps"
+    category: hyperparameter/schedule
+    flag: "config:muon_momentum_warmup_steps"
+    provenance: direct
+    bundled: false
+    numerics: changed
+    coupled:
+      - "muon_momentum_warmup_steps: absolute-step schedule, coupled to num_iterations for RQ3b; co-tuned with #13 (unannounced)"
+  - id: H012
+    file: Dockerfile
+    header: "@@ -27,5 +27,7 @@"
+    description: "Dockerfile installs an unpinned torch nightly (cu124) on top of requirements"
+    category: infra/logging
+    flag: none
+    flag_reason: "container recipe; the flagged repo pins #18's image (launch/Dockerfile), and pins are not changed"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H013
+    file: README.md
+    header: "@@ -2,8 +2,8 @@"
+    description: README headline numbers
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H014
+    file: README.md
+    header: "@@ -13,28 +13,31 @@"
+    description: "README technique list, credits, run instructions (nightly torch; '...you should get the exact same loss curve' on fewer GPUs)"
+    category: cosmetic
+    flag: none
+    flag_reason: "documentation. The fewer-GPU claim does not hold literally for #11-#17's loaders at shard boundaries (EXPLORATION.md section 8); the flagged trainer's unified batch convention makes it hold for the data stream."
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H015
+    file: README.md
+    header: "@@ -67,10 +70,10 @@"
+    description: README record list adds #12 and #13; removes the 'train_gpt2.py is the 11/08/24 record' note
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H016
+    file: README.md
+    header: "@@ -98,9 +101,9 @@"
+    description: README speedrun rules reworded (token order must not change; batch size and seqlen may)
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H017
+    file: README.md
+    header: "@@ -219,7 +222,5 @@"
+    description: README video link removed
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a

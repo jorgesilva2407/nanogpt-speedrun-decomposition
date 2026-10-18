@@ -7,6 +7,7 @@ flags:
   long_context: true
   doc_masking: true
   rotary_variant: v12
+  window_warmup: false
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin
@@ -37,3 +38,6 @@ hparams:
   muon_momentum_warmup_start: 0.85
   muon_momentum_warmup_end: 0.95
   muon_momentum_warmup_steps: 500
+  window_warmup_start: 64     # unused (window_warmup off); record #13 values
+  window_warmup_end: 1792
+  window_warmup_quantum: 64

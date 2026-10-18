@@ -38,3 +38,13 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | torch.compile behaviour | NOT RUN (by design) | compiled `flex_attention`/`create_block_mask` inside the compiled model compile once (no recompiles per step with `dynamic=False`); also for the per-row causal mask (flex chunked path, B=64 rows) |
 | FlexAttention on A100 | NOT RUN (by design) | fwd+bwd of r12 on the A100 without shared-memory errors |
 | fixed point | NOT RUN (by design) | full run vs committed log (final 3.2783 at 1875) |
+
+## r13 (record #13)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS (names/shapes identical); `strict=True` load of a snapshot state_dict |
+| forward equivalence | NOT RUN (by design) | same weights, batch and step: snapshot vs flagged r13 loss bitwise identical, at a step where the window is 64 and one where it is 1792 |
+| smoke train | NOT RUN (by design) | 20 steps preset r13; window tensor follows 64, 64, … (print attn_blocksize) |
+| torch.compile behaviour | NOT RUN (by design) | the window is a tensor captured by the mask_mod: no recompilation when its value changes (count recompiles over 200 steps) |
+| fixed point | NOT RUN (by design) | full run vs committed logs (7 runs, mean final 3.2770 at 1750) |

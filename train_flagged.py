@@ -30,9 +30,11 @@ FLAGS = {
     'long_context': False,   # 1 row of 64K tokens with a sliding window, global positions (vs 64 rows of 1024 causal)
     'doc_masking': False,    # no attention across document boundaries (token 50256 starts a document)
     'rotary_variant': 'v11', # rotary tables: 'v11' inv_freq on CPU at init | 'v12' inv_freq on device at first use
+    # rec-13
+    'window_warmup': False,  # attention window grows linearly over training (window_warmup_* hparams) instead of fixed
 }
 FLAG_CHOICES = {'rotary_variant': ('v11', 'v12')}
-REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel']}
+REQUIRES = {'long_context': ['flex_kernel'], 'doc_masking': ['flex_kernel'], 'window_warmup': ['flex_kernel']}
 
 class Flags:
     def __init__(self, d):
@@ -299,16 +301,18 @@ class GPT(nn.Module):
         self.lm_head = CastedLinear(config.n_embd, config.vocab_size, bias=False)
         self.lm_head.weight.data.zero_() # @Grad62304977
 
-    def forward(self, idx, target):
+    def forward(self, idx, target, attn_blocksize=None):
 
         block_mask = None
         if flags.flex_kernel:
+            # window length: the step's warmed-up value (rec-13, an int tensor) or the fixed attn_window
+            window = attn_blocksize if flags.window_warmup else self.config.attn_window
             if flags.long_context:
                 # rec-12: one 64K-token row (idx is 1-D), causal & sliding window [& same document]
                 docs = (idx == 50256).cumsum(0)
                 def document_causal_mask(b, h, q_idx, kv_idx):
                     causal_mask = q_idx >= kv_idx
-                    window_mask = q_idx - kv_idx < self.config.attn_window
+                    window_mask = q_idx - kv_idx < window
                     if flags.doc_masking:
                         document_mask = docs[q_idx] == docs[kv_idx]
                         return causal_mask & document_mask & window_mask
@@ -318,15 +322,18 @@ class GPT(nn.Module):
                 idx = idx[None]
             else:
                 # record #11's pattern (rows of sequence_length tokens, causal within the row) [& same document]
+                # with window_warmup the window also applies inside a row (inert once it exceeds the row length)
                 Bm, Tm = idx.size()
                 if flags.doc_masking:
                     docs = (idx == 50256).cumsum(1)
                     def row_document_causal_mask(b, h, q_idx, kv_idx):
-                        return (q_idx >= kv_idx) & (docs[b, q_idx] == docs[b, kv_idx])
+                        m = (q_idx >= kv_idx) & (docs[b, q_idx] == docs[b, kv_idx])
+                        return m & (q_idx - kv_idx < window) if flags.window_warmup else m
                     block_mask = create_block_mask(row_document_causal_mask, Bm, None, Tm, Tm, device="cuda", _compile=True)
                 else:
                     def row_causal_mask(b, h, q_idx, kv_idx):
-                        return q_idx >= kv_idx
+                        m = q_idx >= kv_idx
+                        return m & (q_idx - kv_idx < window) if flags.window_warmup else m
                     block_mask = create_block_mask(row_causal_mask, None, None, Tm, Tm, device="cuda", _compile=True)
 
         # forward the GPT model itself
@@ -503,6 +510,9 @@ class Hyperparameters:
     muon_momentum_warmup_start : float
     muon_momentum_warmup_end : float
     muon_momentum_warmup_steps : int
+    window_warmup_start : int # flags.window_warmup: window at step 0, in tokens (record #13: 64)
+    window_warmup_end : int # window at the last step, in tokens (record #13: 1792)
+    window_warmup_quantum : int # window is a multiple of this many tokens (record #13: 64)
 
 def load_config(path):
     with open(path) as f:
@@ -647,6 +657,11 @@ t0 = time.time()
 # begin training
 for step in range(args.num_iterations + 1):
     last_step = (step == args.num_iterations)
+    attn_blocksize = None
+    if flags.window_warmup:
+        # Set the attention blocksize for the current step, in chunks of window_warmup_quantum (rec-13, @fernbear.bsky.social)
+        q, w0, w1 = args.window_warmup_quantum, args.window_warmup_start, args.window_warmup_end
+        attn_blocksize = torch.tensor(q*((step/args.num_iterations * (w1 - w0) + w0)//q), dtype=torch.int, device='cuda')
     # This effectively ignores timing first 10 steps, which are slower for weird reasons.
     # Alternately, and slightly more correctly in terms of benchmarking, we could do 10
     # steps with dummy data first, and then re-initialize the model and reset the loader.
@@ -667,7 +682,7 @@ for step in range(args.num_iterations + 1):
         for _ in range(val_steps):
             with torch.no_grad():
                 x_val, y_val = val_loader.next_batch()
-                val_loss += model(x_val, y_val)
+                val_loss += model(x_val, y_val, attn_blocksize=attn_blocksize)
         dist.all_reduce(val_loss, op=dist.ReduceOp.AVG)
         val_loss /= val_steps
         # log val loss to console and to logfile
@@ -701,7 +716,7 @@ for step in range(args.num_iterations + 1):
     model.train()
     for i in range(1, train_accumulation_steps+1):
         # forward pass
-        loss = model(x, y)
+        loss = model(x, y, attn_blocksize=attn_blocksize)
         train_loss = loss.detach()
         # advance the dataset for the next batch
         x, y = train_loader.next_batch()
