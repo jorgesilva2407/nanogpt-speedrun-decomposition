@@ -141,7 +141,25 @@ def extract(s: Snapshot):
         out['loader_shard_rule'] = None
     reset_before_loop = re.search(r'\ntrain_loader\.reset\(\)\n', src) is not None
     out['loader_replay_first_round'] = reset_before_loop
+    out['attn_window'] = find(src, r'window_mask = q_idx - kv_idx < (\d+)\n', cast=int)
     return out
+
+def detect_flags(s: Snapshot):
+    """Mechanism detectors: what the snapshot code does, expressed as the flag values that reproduce it.
+    A detector returns None when it cannot decide (reported, not a mismatch)."""
+    src, hp = s.src, s.hp
+    f = {}
+    f['flex_kernel'] = 'flex_attention(q' in src
+    seq = hp.get('sequence_length', hp.get('max_device_batch_size'))
+    f['long_context'] = seq == 65536 and ('idx[None]' in src or 'inputs[None]' in src)
+    f['doc_masking'] = 'docs[q_idx] == docs[kv_idx]' in src
+    if 'self.inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))' in src:
+        f['rotary_variant'] = 'v11'
+    elif 'self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))' in src:
+        f['rotary_variant'] = 'v12'
+    else:
+        f['rotary_variant'] = None
+    return f
 
 def main():
     snap_path, preset_path = sys.argv[1:3]
@@ -167,6 +185,16 @@ def main():
     for k in sorted(set(vals) - set(hp)):
         if vals[k] is not None:
             rows.append((k, vals[k], '-', 'in snapshot, not a config key of this preset'))
+    det = detect_flags(s)
+    for k in sorted(cfg.get('flags') or {}):
+        if k not in det:
+            rows.append(('flag:' + k, '-', cfg['flags'][k], 'NO DETECTOR'))
+        elif det[k] is None:
+            rows.append(('flag:' + k, '-', cfg['flags'][k], 'UNDECIDED by detector'))
+        else:
+            ok = det[k] == cfg['flags'][k]
+            rows.append(('flag:' + k, det[k], cfg['flags'][k], 'match' if ok else 'MISMATCH'))
+            bad += not ok
     w = max(len(r[0]) for r in rows)
     for r in rows:
         print(f'{r[0]:{w}s}  snapshot={str(r[1]):38s} preset={str(r[2]):38s} {r[3]}')

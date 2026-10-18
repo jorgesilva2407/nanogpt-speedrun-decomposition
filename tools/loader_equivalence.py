@@ -78,11 +78,14 @@ def record_stream(snapshot_cls, protocol, B, T, W, steps):
         cur = [ld.next_batch() for ld in loaders]       # accumulation steps == 1 at W=8
     return out
 
-def flagged_stream(flagged_cls, hp, B, T, W, steps):
+def flagged_stream(flagged_cls, hp, flags, B, T, W, steps):
     vr = hp['global_batch_tokens'] // hp['micro_batch_tokens']
     A = vr // W
+    kw = {}
+    if flags.get('long_context'):
+        B, T, kw = 1, B * T, dict(rows_2d=False)
     loaders = [flagged_cls('pattern', B, T, vr, range(r * A, (r + 1) * A), hp['loader_shard_rule'],
-                           hp['loader_replay_first_round']) for r in range(W)]
+                           hp['loader_replay_first_round'], **kw) for r in range(W)]
     cur = [ld.next_batch() for ld in loaders]
     out = []
     for _ in range(steps):
@@ -97,6 +100,9 @@ def flagged_stream(flagged_cls, hp, B, T, W, steps):
 PROTOCOLS = {
     # record #11: DistributedDataLoader(pattern, B, T, rank, W); prefetch; train_loader.reset() before loop
     'r11': dict(ctor=lambda B, T, r, W: (B, T, r, W), reset_before_loop=True),
+    # records #12-#13: DistributedDataLoader(pattern, B=1, T=64K, rank, W); no reset before the loop
+    'r12': dict(ctor=lambda B, T, r, W: (1, B * T, r, W)),
+    'r13': dict(ctor=lambda B, T, r, W: (1, B * T, r, W)),
 }
 
 def main():
@@ -106,7 +112,8 @@ def main():
     ap.add_argument('--steps', type=int, default=400)
     a = ap.parse_args()
     import yaml
-    hp = yaml.safe_load(open(a.preset))['hparams']
+    cfg = yaml.safe_load(open(a.preset))
+    hp, flags = cfg['hparams'], cfg.get('flags') or {}
     # scaled-down geometry with the record's ratios: 8 micro-batches per step, micro = B*T
     B, T = 4, 8                                  # micro = 32 tokens (record: 64 x 1024)
     micro = B * T
@@ -117,7 +124,7 @@ def main():
     rec = record_stream(load_loader_class(a.snapshot, shards), PROTOCOLS[a.protocol], B, T, 8, a.steps)
     res = {}
     for W in (1, 2, 4, 8):
-        fl = flagged_stream(load_loader_class(a.flagged, shards), hp, B, T, W, a.steps)
+        fl = flagged_stream(load_loader_class(a.flagged, shards), hp, flags, B, T, W, a.steps)
         first_diff = next((s for s in range(a.steps) if fl[s] != rec[s]), None)
         res[W] = first_diff
         print(f'world_size={W}: first step whose micro-batches differ from the 8-GPU record stream: {first_diff}')

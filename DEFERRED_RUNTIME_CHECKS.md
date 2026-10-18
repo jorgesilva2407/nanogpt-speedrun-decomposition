@@ -24,6 +24,17 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 |---|---|---|
 | state_dict load | NOT RUN (by design) | parameter names/shapes equal the snapshot's (static gate PASS: 99 tensors, 162,201,642 parameters); load a state_dict produced by the snapshot script into `train_flagged.py --config configs/r11.yaml` with `strict=True` |
 | forward equivalence | NOT RUN (by design) | same weights + same batch through snapshot and flagged models → identical loss (bitwise, same process/device) |
-| smoke train | NOT RUN (by design) | 20 steps, 8 GPUs, preset r11: loss decreases; val at step 0 ≈ 10.83 (record log: `step:0/3000 val_loss:…`) |
+| smoke train | NOT RUN (by design) | 20 steps, preset r11: val at step 0 = 10.8258 (= ln 50304, zero-initialised lm_head; every record log shows exactly this), train loss decreases |
 | torch.compile behaviour | NOT RUN (by design) | compile succeeds with `coordinate_descent_tuning`; no graph breaks warned beyond the snapshot's |
 | fixed point | NOT RUN (by design) | full run, 8-GPU: val-loss curve within seed noise of the committed log (final 3.2753 at step 3000) |
+
+## r12 (record #12)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS (99 tensors, names/shapes identical); load the snapshot's state_dict into preset r12, `strict=True` |
+| forward equivalence | NOT RUN (by design) | same weights + batch: snapshot vs flagged r12 loss bitwise identical; flagged `flex_kernel` only (r11 + kernel) vs r11 loss equal up to rounding (kernel swap) |
+| smoke train | NOT RUN (by design) | 20 steps preset r12; step-0 val 10.8258; `create_block_mask` compiles |
+| torch.compile behaviour | NOT RUN (by design) | compiled `flex_attention`/`create_block_mask` inside the compiled model compile once (no recompiles per step with `dynamic=False`); also for the per-row causal mask (flex chunked path, B=64 rows) |
+| FlexAttention on A100 | NOT RUN (by design) | fwd+bwd of r12 on the A100 without shared-memory errors |
+| fixed point | NOT RUN (by design) | full run vs committed log (final 3.2783 at 1875) |

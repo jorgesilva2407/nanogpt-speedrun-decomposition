@@ -1,0 +1,317 @@
+record: 12
+title: "1024-ctx dense causal attention -> 64K-ctx FlexAttention"
+snapshot_from: r11
+snapshot_to: r12
+diff: diffs/r12-vs-r11.diff
+hunks:
+  - id: H001
+    file: train_gpt2.py
+    header: "@@ -16,2 +16,5 @@"
+    description: import FlexAttention; wrap flex_attention and create_block_mask in torch.compile(dynamic=False)
+    category: throughput-only
+    flag: flex_kernel
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H002
+    file: train_gpt2.py
+    header: "@@ -32,3 +35,3 @@"
+    description: Newton-Schulz docstring '\sim' -> '~'
+    category: cosmetic
+    flag: none
+    flag_reason: docstring text only
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H003
+    file: train_gpt2.py
+    header: "@@ -127,3 +130,5 @@"
+    description: Rotary keeps dim/base and defers inv_freq (no longer computed on CPU in __init__)
+    category: throughput-only
+    flag: rotary_variant
+    provenance: direct
+    bundled: false
+    numerics: ulp-level
+    note: "intervening refactor (Keller, 2024-11-11, c3e1443..95c47b8; EXPLORATION.md section 7). rotary_variant v11 -> v12."
+  - id: H004
+    file: train_gpt2.py
+    header: "@@ -135,5 +140,6 @@"
+    description: "inv_freq computed on the device at first forward (pow/division on GPU instead of CPU); outer product on device"
+    category: throughput-only
+    flag: rotary_variant
+    provenance: direct
+    bundled: false
+    numerics: ulp-level
+    note: "CPU vs GPU float32 pow can differ in the last bit; cos/sin are then rounded to bf16 in both variants. Not proven identical, so switchable."
+  - id: H005
+    file: train_gpt2.py
+    header: "@@ -172,3 +178,3 @@"
+    description: CausalSelfAttention.forward takes a block_mask argument
+    category: throughput-only
+    flag: flex_kernel
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H006
+    file: train_gpt2.py
+    header: "@@ -183,3 +189,3 @@"
+    description: attention kernel cuDNN SDPA (is_causal) -> FlexAttention with block_mask
+    category: throughput-only
+    flag: flex_kernel
+    provenance: direct
+    bundled: false
+    numerics: ulp-level
+    note: "with long_context off the flagged FlexAttention path uses a per-row causal block mask, i.e. the same attention pattern as SDPA is_causal on 64x1024 rows; kernels differ, so equality is up to rounding."
+  - id: H007
+    file: train_gpt2.py
+    header: "@@ -210,5 +216,5 @@"
+    description: Block.forward threads block_mask to attention
+    category: throughput-only
+    flag: flex_kernel
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H008
+    file: train_gpt2.py
+    header: "@@ -231,3 +237,8 @@"
+    description: "GPT.__init__: drop self.config; create U-net attributes/skip_weights before the transformer (renamed encoder_layers -> num_encoder_layers)"
+    category: cosmetic
+    flag: none
+    flag_reason: "same parameters and shapes; skip_weights is ones-initialised (no RNG) so moving it does not change the init RNG stream; only named_parameters order changes. The flagged trainer keeps r11's order and self.config."
+    provenance: direct
+    bundled: false
+    numerics: identical
+    note: "intervening re-implementation of the U-net on master (607f2a3, 2024-11-20)"
+  - id: H009
+    file: train_gpt2.py
+    header: "@@ -237,9 +248,2 @@"
+    description: (other half of H008) old U-net attribute block removed after the transformer
+    category: cosmetic
+    flag: none
+    flag_reason: see H008
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H010
+    file: train_gpt2.py
+    header: "@@ -249,4 +253,14 @@"
+    description: "build the attention mask per micro-batch: causal & same-document & (q - kv < 1024) over one 65,536-token row (idx is 1-D, embedded as idx[None])"
+    category: model-mechanism
+    flag: [long_context, doc_masking, flex_kernel, "config:attn_window"]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    coupled:
+      - "attn_window: mechanically coupled to long_context (sliding-window length; 1024 here, warmed up from #13)"
+    parts:
+      - {what: "one 64K-token row instead of 64 rows of 1024; sliding window instead of row boundaries; rotary positions 0..65535", flag: long_context, category: model-mechanism}
+      - {what: "document mask docs[q] == docs[kv]", flag: doc_masking, category: model-mechanism}
+      - {what: "create_block_mask(..., _compile=True) for FlexAttention", flag: flex_kernel, category: throughput-only}
+    note: "The README calls this '64K-ctx', but the attention window stays 1024 tokens; what changes is that windows slide across the old row boundaries and stop at document boundaries. doc_masking is unbundled from long_context: it is also defined on 1024-token rows (mask within the row)."
+  - id: H011
+    file: train_gpt2.py
+    header: "@@ -257,14 +271,10 @@"
+    description: "U-net loops: renamed attributes; decoder adds the weighted skip to x before the block call; block_mask threaded"
+    category: [cosmetic, throughput-only]
+    flag: flex_kernel
+    provenance: direct
+    bundled: true
+    numerics: identical
+    parts:
+      - {what: "x + w*skip computed before vs inside the call: same operations in the same order", flag: none, category: cosmetic}
+      - {what: "block_mask argument", flag: flex_kernel, category: throughput-only}
+  - id: H012
+    file: train_gpt2.py
+    header: "@@ -275,3 +285,3 @@"
+    description: "return loss instead of loss.float()"
+    category: cosmetic
+    flag: none
+    flag_reason: "cross_entropy of float32 logits is already float32, so .float() returns the same tensor; the flagged trainer keeps r11's form"
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H013
+    file: train_gpt2.py
+    header: "@@ -326,3 +336,2 @@"
+    description: comment removed in DistributedDataLoader.__init__
+    category: cosmetic
+    flag: none
+    flag_reason: comment
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H014
+    file: train_gpt2.py
+    header: "@@ -330,5 +339,4 @@"
+    description: "reset() sets current_shard = -1 and calls advance(), which yields shard 0 at rank*B*T as before"
+    category: cosmetic
+    flag: none
+    flag_reason: identical loader state after reset
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H015
+    file: train_gpt2.py
+    header: "@@ -340,11 +348,10 @@"
+    description: "next_batch returns 1-D tensors (one 64K row); shard test 'pos + (B*T*W + 1) > len' -> 'pos + B*T*W >= len'"
+    category: [model-mechanism, infra/logging]
+    flag: [long_context, "config:loader_shard_rule"]
+    provenance: direct
+    bundled: true
+    numerics: identical
+    parts:
+      - {what: "1-D token rows", flag: long_context, category: model-mechanism}
+      - {what: "shard test: for integers, x + 1 > L is the same predicate as x >= L, so the switch points do not move (loader_shard_rule 'ge' == 'gt_plus1' in effect)", flag: "config:loader_shard_rule", category: infra/logging}
+  - id: H016
+    file: train_gpt2.py
+    header: "@@ -361,8 +368,8 @@"
+    description: "hyperparameters: 8 x 64K-token sequences (was 512 x 1024; same 524,288 tokens/step), num_iterations 3000 -> 1875, warmdown_iters 900 -> 562"
+    category: hyperparameter/schedule
+    flag: [long_context, "config:num_iterations", "config:warmdown_iters"]
+    provenance: direct
+    bundled: true
+    numerics: changed
+    coupled:
+      - "num_iterations: co-tuned with #12 (record shortened the run); not mechanically coupled to a flag"
+      - "warmdown_iters: absolute-step schedule, coupled to num_iterations (562/1875 = 0.2997); must be rescaled under RQ3b budget scaling"
+    note: "batch geometry maps onto global_batch_tokens/micro_batch_tokens (unchanged) plus the long_context layout"
+  - id: H017
+    file: train_gpt2.py
+    header: "@@ -385,2 +392,29 @@"
+    description: log file created right after DDP init through a print0 helper (was after the optimizers)
+    category: infra/logging
+    flag: none
+    flag_reason: "logging only; the flagged trainer keeps r11's logging (replaced wholesale by launch/run_one.py metrics logging in Step 5)"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H018
+    file: train_gpt2.py
+    header: "@@ -397,5 +431,5 @@"
+    description: data-loader token counts printed through print0
+    category: infra/logging
+    flag: none
+    flag_reason: logging only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H019
+    file: train_gpt2.py
+    header: "@@ -410,3 +444,2 @@"
+    description: blank line removed
+    category: cosmetic
+    flag: none
+    flag_reason: whitespace
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H020
+    file: train_gpt2.py
+    header: "@@ -430,3 +463,3 @@"
+    description: spaces around '+' in scalar_params
+    category: cosmetic
+    flag: none
+    flag_reason: whitespace
+    provenance: direct
+    bundled: false
+    numerics: identical
+  - id: H021
+    file: train_gpt2.py
+    header: "@@ -449,22 +482,3 @@"
+    description: old logging block removed (moved to H017)
+    category: infra/logging
+    flag: none
+    flag_reason: logging only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H022
+    file: train_gpt2.py
+    header: "@@ -474,3 +488,2 @@"
+    description: "train_loader.reset() before the loop removed: the first batch is no longer trained on twice"
+    category: infra/logging
+    flag: "config:loader_replay_first_round"
+    provenance: direct
+    bundled: false
+    numerics: changed
+    note: "data order: r11 trains on batches 0,0,1,2,...; r12 on 0,1,2,... (every later step is shifted by one batch)."
+  - id: H023
+    file: train_gpt2.py
+    header: "@@ -501,6 +514,3 @@"
+    description: val-loss line written through print0
+    category: infra/logging
+    flag: none
+    flag_reason: logging only
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H024
+    file: train_gpt2.py
+    header: "@@ -556,7 +566,4 @@"
+    description: "per-step line through print0; approx_time and train_loss.item() now evaluated on every rank"
+    category: infra/logging
+    flag: none
+    flag_reason: "logging only (the .item() on every rank adds a host sync per step on non-master ranks: a throughput side effect of logging, not of any mechanism)"
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H025
+    file: Dockerfile
+    header: "@@ -28,4 +28,4 @@"
+    description: newline at end of file
+    category: cosmetic
+    flag: none
+    flag_reason: whitespace in the container recipe
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H026
+    file: README.md
+    header: "@@ -14,6 +14,8 @@"
+    description: README credits line
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H027
+    file: README.md
+    header: "@@ -55,16 +57,20 @@"
+    description: "README record list notes; adds 'The train_gpt2.py in this repo is the 11/08/24 record. To run the latest 11/10/24 record, use the code in its reproducible log.'"
+    category: cosmetic
+    flag: none
+    flag_reason: documentation (independently confirms that #11's code is the log-embedded source, EXPLORATION.md section 4)
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H028
+    file: README.md
+    header: "@@ -85,6 +91,11 @@"
+    description: README notable forks
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H029
+    file: README.md
+    header: "@@ -144,9 +155,9 @@"
+    description: README's Newton-Schulz snippet updated to the factored form already used by the training script
+    category: cosmetic
+    flag: none
+    flag_reason: documentation (the training script already had this form at r11)
+    provenance: direct
+    bundled: false
+    numerics: n/a
+  - id: H030
+    file: README.md
+    header: "@@ -208,7 +219,7 @@"
+    description: README video embed iframe -> image link
+    category: cosmetic
+    flag: none
+    flag_reason: documentation
+    provenance: direct
+    bundled: false
+    numerics: n/a
