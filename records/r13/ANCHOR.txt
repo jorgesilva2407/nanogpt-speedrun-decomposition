@@ -1,0 +1,7 @@
+record: 13
+code_sha: 759b8fc
+tree_sha: 759b8fc74c2ef30e5c78ceec65bcb6a190a61399
+log: records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt (read at 5deb47d)
+log_source_sha1: 9084e4d297aa517a703476ff93e8ff58778fae88
+log_source_lines: 578
+code_vs_log: differs (5 changed lines; see MANIFEST relation)

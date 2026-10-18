@@ -5,3 +5,9 @@ __pycache__/
 results/*/*/seed*/*.pt
 results/
 experiments/hosts.json
+
+# external material, re-created by explore_tools/fetch_sources.sh (not ours, large)
+.venv/
+upstream/
+ext/
+records/r*/tree/

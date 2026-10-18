@@ -1,0 +1,382 @@
+{
+ "11": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "62755357",
+   "date": "2024-11-24T16:49:56-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "7.2 minutes | [U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  },
+  {
+   "sha": "2d091d8c",
+   "date": "2024-11-24T16:52:00-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "11 | 7.2 minutes | [U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](./records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  },
+  {
+   "sha": "45544f53",
+   "date": "2025-01-04T01:00:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "11 | 7.2 minutes | [U-net & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  },
+  {
+   "sha": "0280f14a",
+   "date": "2025-01-17T09:19:31Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "11 | 7.2 minutes | [U-net skip connections & 2x lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  },
+  {
+   "sha": "1467a120",
+   "date": "2025-01-17T09:20:28Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "11 | 7.2 minutes | [U-net skip connections & double lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  },
+  {
+   "sha": "3398582c",
+   "date": "2025-01-17T09:22:39Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "11 | 7.2 minutes | [U-net pattern skip connections & double lr](https://x.com/kellerjordan0/status/1856053121103093922) | 11/10/24 | [log](records/111024_UNetDoubleLr/c87bb826-797b-4f37-98c7-d3a5dad2de74.txt) | @brendanh0gan"
+  }
+ ],
+ "12": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "62755357",
+   "date": "2024-11-24T16:49:56-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "5.03 minutes | [FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](./records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "2d091d8c",
+   "date": "2024-11-24T16:52:00-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "12 | 5.03 minutes | [FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](./records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "45544f53",
+   "date": "2025-01-04T01:00:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "12 | 5.03 minutes | [FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "1467a120",
+   "date": "2025-01-17T09:20:28Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "12 | 5.03 minutes | [Switch from 1024-ctx causal attention to 64K-ctx FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "372d94f9",
+   "date": "2025-01-17T09:20:51Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "12 | 5.03 minutes | [Switch from 1024-ctx causal to 64K-ctx FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "a1da3d62",
+   "date": "2025-01-17T09:21:33Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "12 | 5.03 minutes | [Switch from 1024-ctx dense causal attention to 64K-ctx FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "8482b0eb",
+   "date": "2025-01-17T01:24:17-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "12 | 5.03 minutes | [1024-ctx dense causal attention \u2192 64K-ctx FlexAttention](https://x.com/kellerjordan0/status/1859331370268623321) | 11/19/24 | [log](records/111924_FlexAttention/8384493d-dba9-4991-b16b-8696953f5e6d.txt) | @KoszarskyB"
+  }
+ ],
+ "13": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "62755357",
+   "date": "2024-11-24T16:49:56-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "4.66 minutes | Attention window warmup | 11/24/24 | [log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social"
+  },
+  {
+   "sha": "2d091d8c",
+   "date": "2024-11-24T16:52:00-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "13 | 4.66 minutes | Attention window warmup | 11/24/24 | [log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social"
+  },
+  {
+   "sha": "d1b62120",
+   "date": "2024-11-24T18:54:37-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "13 | 4.66 minutes | [Attention window warmup](https://x.com/hi_tysam/status/1860851011797053450) | 11/24/24 | [log](./records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social"
+  },
+  {
+   "sha": "45544f53",
+   "date": "2025-01-04T01:00:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "13 | 4.66 minutes | [Attention window warmup](https://x.com/hi_tysam/status/1860851011797053450) | 11/24/24 | [log](records/112424_WindowWarmup/cf9e4571-c5fc-4323-abf3-a98d862ec6c8.txt) | @fernbear.bsky.social"
+  }
+ ],
+ "14": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "45a8dc24",
+   "date": "2024-12-05T06:54:04Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "14 | 4.41 minutes | [Value Embeddings]() | 12/04/24 | [log](./records/120424_ValueEmbed) | @KoszarskyB"
+  },
+  {
+   "sha": "4442c394",
+   "date": "2024-12-09T21:55:42Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "14 | 4.41 minutes | [Value Embeddings](https://x.com/KoszarskyB/status/1864746625572257852) | 12/04/24 | [log](./records/120424_ValueEmbed) | @KoszarskyB"
+  },
+  {
+   "sha": "45544f53",
+   "date": "2025-01-04T01:00:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "14 | 4.41 minutes | [Value Embeddings](https://x.com/KoszarskyB/status/1864746625572257852) | 12/04/24 | [log](records/120424_ValueEmbed) | @KoszarskyB"
+  }
+ ],
+ "15": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "4442c394",
+   "date": "2024-12-09T21:55:42Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "15 | 3.95 minutes | [U-net structure for value embeddings, assorted code improvements](https://x.com/YouJiacheng/status/1865761473886347747) | 12/08/24 | [log](https://gist.github.com/YouJiacheng/1fed95270177aa04f389b46e8c7d7733) | @leloykun, @YouJiacheng"
+  },
+  {
+   "sha": "92b60a20",
+   "date": "2024-12-09T21:58:18Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "15 | 3.95 minutes | [U-net pattern for value embeds, assorted code improvements](https://x.com/YouJiacheng/status/1865761473886347747) | 12/08/24 | [log](https://gist.github.com/YouJiacheng/1fed95270177aa04f389b46e8c7d7733) | @leloykun, @YouJiacheng"
+  },
+  {
+   "sha": "2035d87c",
+   "date": "2024-12-11T05:27:22Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "15 | 3.95 minutes | [U-net pattern for value embeds, assorted code improvements](https://x.com/YouJiacheng/status/1865761473886347747) | 12/08/24 | [log](records/120824_UNetValueEmbedsTweaks) | @leloykun, @YouJiacheng"
+  },
+  {
+   "sha": "0280f14a",
+   "date": "2025-01-17T09:19:31Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "15 | 3.95 minutes | [U-net pattern for value embeddings, assorted code optimizations](https://x.com/YouJiacheng/status/1865761473886347747) | 12/08/24 | [log](records/120824_UNetValueEmbedsTweaks) | @leloykun, @YouJiacheng"
+  },
+  {
+   "sha": "3398582c",
+   "date": "2025-01-17T09:22:39Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "15 | 3.95 minutes | [U-net pattern value embeddings, assorted code optimizations](https://x.com/YouJiacheng/status/1865761473886347747) | 12/08/24 | [log](records/120824_UNetValueEmbedsTweaks) | @leloykun, @YouJiacheng"
+  }
+ ],
+ "16": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "b6e0ae8e",
+   "date": "2024-12-12T06:57:07Z",
+   "author": "KellerJordan",
+   "subject": "new record 12/10/24",
+   "row": "16 | 3.80 minutes | [MFU tweaks](https://x.com/YouJiacheng/status/1866734331559071981) | 12/10/24 | [log](records/121024_MFUTweaks) | @YouJiacheng"
+  },
+  {
+   "sha": "1529e7a3",
+   "date": "2025-01-06T07:33:33-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "16 | 3.80 minutes | [Code optimizations](https://x.com/YouJiacheng/status/1866734331559071981) | 12/10/24 | [log](records/121024_MFUTweaks) | @YouJiacheng"
+  },
+  {
+   "sha": "d44d3493",
+   "date": "2025-01-06T07:33:48-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "16 | 3.80 minutes | [Various code optimizations](https://x.com/YouJiacheng/status/1866734331559071981) | 12/10/24 | [log](records/121024_MFUTweaks) | @YouJiacheng"
+  },
+  {
+   "sha": "0280f14a",
+   "date": "2025-01-17T09:19:31Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "16 | 3.80 minutes | [Split value embeddings, block sliding window, separate block mask](https://x.com/YouJiacheng/status/1866734331559071981) | 12/10/24 | [log](records/121024_MFUTweaks) | @YouJiacheng"
+  }
+ ],
+ "17": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "a146238e",
+   "date": "2024-12-31T02:47:00-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "17 | 3.57 minutes | [Sparsify value embeds & improve rotary & drop attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | tbd | @YouJiacheng"
+  },
+  {
+   "sha": "d9acc231",
+   "date": "2024-12-19T23:52:22-08:00",
+   "author": "Egil Martinsson",
+   "subject": "Call data/cached_fineweb10B.py 10 in docker",
+   "row": null
+  },
+  {
+   "sha": "2ebc81ad",
+   "date": "2024-12-31T03:26:06-08:00",
+   "author": "Keller Jordan",
+   "subject": "Merge pull request #58 from ragulpr/egil/update-readme-dockerrun-arg",
+   "row": "17 | 3.57 minutes | [Sparsify value embeds & improve rotary & drop attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | tbd | @YouJiacheng"
+  },
+  {
+   "sha": "a61236fa",
+   "date": "2024-12-31T03:33:16-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "17 | 3.57 minutes | [Sparsify value embeds & improve rotary & drop attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | [log](https://gist.github.com/YouJiacheng/dff723d9a362303f4dca6d71a6469555) | @YouJiacheng"
+  },
+  {
+   "sha": "e7e00c24",
+   "date": "2025-01-05T15:19:44-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "17 | 3.57 minutes | [Sparsify value embeds & improve rotary & drop attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | [log](records/121724_SparsifyEmbeds) | @YouJiacheng"
+  },
+  {
+   "sha": "96f1d856",
+   "date": "2025-01-05T16:05:37-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "17 | 3.57 minutes | [Sparsify value embeddings, improve rotary, drop an attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | [log](records/121724_SparsifyEmbeds) | @YouJiacheng"
+  },
+  {
+   "sha": "0280f14a",
+   "date": "2025-01-17T09:19:31Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": "17 | 3.57 minutes | [Sparsify value embeddings, improve rotary embeddings, drop an attn layer](https://x.com/YouJiacheng/status/1868938024731787640) | 12/17/24 | [log](records/121724_SparsifyEmbeds) | @YouJiacheng"
+  }
+ ],
+ "18": [
+  {
+   "sha": "4a452a26",
+   "date": "2024-06-01T06:15:54Z",
+   "author": "KellerJordan",
+   "subject": ".",
+   "row": null
+  },
+  {
+   "sha": "45544f53",
+   "date": "2025-01-04T01:00:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "18 | 3.4 minutes | Softer softcapping | 01/04/25 | [log](records/010425_SofterSoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "ccc46863",
+   "date": "2025-01-04T01:02:09-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "18 | 3.4 minutes | Increased softcapping | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "a203062f",
+   "date": "2025-01-04T01:06:41-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "18 | 3.4 minutes | Intensified softcapping | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "50695c8e",
+   "date": "2025-01-04T05:46:15-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "18 | 3.4 minutes | Softcapping 30 -> 15 | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "bbfdd68a",
+   "date": "2025-01-04T05:46:37-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "18 | 3.4 minutes | Softcapping 30 \u2192 15 | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "f8e78564",
+   "date": "2025-01-05T14:45:35-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "18 | 3.4 minutes | Lower logit softcapping from 30 to 15 | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "fac09a46",
+   "date": "2025-01-05T15:20:20-08:00",
+   "author": "Keller Jordan",
+   "subject": ".",
+   "row": "18 | 3.4 minutes | Lower logit softcap from 30 to 15 | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  },
+  {
+   "sha": "66822eba",
+   "date": "2025-01-05T16:05:01-08:00",
+   "author": "Keller Jordan",
+   "subject": "Update README.md",
+   "row": "18 | 3.4 minutes | [Lower logit softcap from 30 to 15](https://x.com/kellerjordan0/status/1876048851158880624) | 01/04/25 | [log](records/010425_SoftCap/31d6c427-f1f7-4d8a-91be-a67b5dcd13fd.txt) | @KoszarskyB"
+  }
+ ]
+}
