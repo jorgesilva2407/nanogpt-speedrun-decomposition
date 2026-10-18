@@ -6,9 +6,11 @@ flags: {}
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin
-  batch_size: 512          # 8*64 sequences across all devices
-  device_batch_size: 64    # sequences per device
+  global_batch_tokens: 524288   # record: batch_size 8*64 sequences x sequence_length 1024
+  micro_batch_tokens: 65536     # record: device_batch_size 64 x sequence_length 1024
   sequence_length: 1024
+  loader_shard_rule: gt_plus1   # record: `if pos + (B*T*W + 1) > len(tokens): advance()`
+  loader_replay_first_round: true  # record: prefetch, then train_loader.reset() before the loop
   num_iterations: 3000
   warmup_iters: 0
   warmdown_iters: 900
