@@ -23,7 +23,8 @@ EXPECTED = {11: dict(total=162_201_642, embed=38_633_472, lm_head=38_633_472, bl
                      blocks=82_575_406)}
 
 # snapshot parameter name -> flagged parameter name (regex rewrites applied in order); filled per record
-NAME_MAP = {}
+_R16 = [(r'^embed\.', 'transformer.wte.'), (r'^blocks\.', 'transformer.h.')]
+NAME_MAP = {16: _R16, 17: _R16, 18: _R16}
 
 def snapshot_path(records, n):
     d = os.path.join(records, f'r{n}', 'log_source')

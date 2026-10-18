@@ -155,6 +155,10 @@ def extract(s: Snapshot):
         q1, s0, end, s1, q2 = map(int, m.groups())
         assert q1 == q2 and s0 == s1, 'unexpected window schedule shape'
         out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
+    m = re.search(r'int\(\(\(1 - frac_done\) \* (\d+) \+ frac_done \* (\d+) \+ (\d+)\) // 128\)', src)
+    if m:   # records #16-#17: blocks = int(((1 - f) * start + f * end + q) // 128)
+        s0, end, q1 = map(int, m.groups())
+        out['window_warmup_quantum'], out['window_warmup_end'], out['window_warmup_start'] = q1, end, s0
     return out
 
 def detect_flags(s: Snapshot):
@@ -181,6 +185,10 @@ def detect_flags(s: Snapshot):
     f['code_opts_15'] = 'dist.all_gather(update_buffers' in src
     f['muon_ema_momentum'] = 'buf.lerp_(g, 1 - momentum)' in src
     f['blockmask_manual'] = 'BlockMask.from_kv_blocks' in src
+    f['ve_split'] = 'class ValueEmbedding' in src
+    f['block_window'] = 'sliding_window_num_blocks' in src
+    f['blockmask_separate'] = 'full_kv_num_blocks' in src
+    f['code_opts_16'] = 'gradient_as_bucket_view=True' in src
     return f
 
 def main():

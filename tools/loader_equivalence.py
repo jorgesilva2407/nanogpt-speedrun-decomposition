@@ -109,6 +109,8 @@ PROTOCOLS = {
     # records #14-#17: DistributedDataLoader(pattern, T=64K, rank, W)
     'r14': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
     'r15': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
+    'r16': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
+    'r17': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
 }
 
 def main():
