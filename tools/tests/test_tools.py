@@ -114,7 +114,7 @@ def test_param_inventory_on_synthetic_script(tmp_path):
 def test_loader_equivalence_negative_control(tmp_path):
     """The harness must report a difference when the replay flag is wrong."""
     root = os.path.dirname(TOOLS)
-    snap = os.path.join(root, '..', 'records', 'r11', 'log_source', 'train_gpt2.py')
+    snap = os.path.join(root, 'records', 'r11', 'log_source', 'train_gpt2.py')
     if not os.path.exists(snap):
         pytest.skip('records/r11 not exported')
     cfg = yaml.safe_load(open(os.path.join(root, 'configs', 'r11.yaml')))

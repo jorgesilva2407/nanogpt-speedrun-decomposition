@@ -6,7 +6,7 @@ Part 2 — every other file of the two pristine trees (records/rNN/tree), unifie
          binary files get one 'Binary files differ' entry. Excluded, and listed in the diff header:
          records/** (committed logs and record write-ups: evidence, catalogued in records/MANIFEST.md) and the
          trees' own training scripts (superseded by Part 1; tree-vs-log relation is in MANIFEST.md).
-Usage: python -I tools/make_diff.py <work/records> <old NN> <new NN> <out.diff>
+Usage: python -I tools/make_diff.py <records> <old NN> <new NN> <out.diff>
 """
 import difflib, os, sys
 

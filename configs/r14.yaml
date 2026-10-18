@@ -1,5 +1,5 @@
 # Preset r14 = record #14 (value embeddings), 2024-12-04.
-# Snapshot: work/records/r14/log_source/train_gpt2.py (== 49c3afa up to the final newline).
+# Snapshot: records/r14/log_source/train_gpt2.py (== 49c3afa up to the final newline).
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r14
 flags:

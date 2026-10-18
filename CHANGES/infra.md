@@ -68,7 +68,7 @@ record #11. **This is an argument from code reading; it has not been executed** 
 * **Data.** Each step trains on the same 8 micro-batches as the 8-GPU record run (virtual rank `v` reads what
   rank `v` read), including across shard boundaries and the first-batch replay. This is *not* what the record's
   code would literally do on fewer GPUs: its loader's shard switch depends on `world_size`, and its
-  prefetch/reset quirk becomes per-micro-step (see `work/EXPLORATION.md` §8: with 100M-token shards the literal
+  prefetch/reset quirk becomes per-micro-step (see `EXPLORATION.md` §8: with 100M-token shards the literal
   1-GPU and 8-GPU streams diverge at step 189). Verified by executing only the loader classes on synthetic
   shards: `python -I tools/loader_equivalence.py <r11 snapshot> train_flagged.py configs/r11.yaml --protocol r11`
   → identical micro-batch offsets at world_size 1, 2, 4, 8 for 600 steps on 8 synthetic shards of ~6,100
@@ -91,7 +91,7 @@ record #11. **This is an argument from code reading; it has not been executed** 
 ## compat: drift established statically against the pinned stack
 
 Pinned stack (unchanged, from upstream #18's Dockerfile): `nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04`, Python
-3.12.7, `torch==2.6.0.dev20241231+cu126`. Sources read (not executed), saved under `work/ext/torch_src/`:
+3.12.7, `torch==2.6.0.dev20241231+cu126`. Sources read (not executed), saved under `ext/torch_src/`:
 `sdp_utils.cpp` at main `09c950c` (last change before the nightly) and at `v2.6.0`;
 `flex_attention.py`, `torch/compiler/__init__.py`, `torch/nn/parameter.py`, `torch/_inductor/kernel/flex_attention.py`
 at main `8d9ff9c` (2024-12-31 23:45 UTC, the nightly's day).

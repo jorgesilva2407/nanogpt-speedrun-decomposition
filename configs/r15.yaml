@@ -1,5 +1,5 @@
 # Preset r15 = record #15 (U-net pattern value embeddings, assorted code optimizations), 2024-12-08.
-# Snapshot: work/records/r15/log_source/train_gpt2.py (no commit holds it; == YouJiacheng's gist 1fed9527 up to the
+# Snapshot: records/r15/log_source/train_gpt2.py (no commit holds it; == YouJiacheng's gist 1fed9527 up to the
 # final newline). Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 # Every value below is the literal in that snapshot; tools/extract_constants.py checks it.
 preset: r15
