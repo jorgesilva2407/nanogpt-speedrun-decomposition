@@ -22,3 +22,65 @@ token stream held fixed. Same-seed reruns isolate the nondeterministic part; the
 
 **Not verified at runtime:** that the generators listed are the only ones consumed (e.g. by torch.compile or
 NCCL internals). Listed in `DEFERRED_RUNTIME_CHECKS.md`.
+
+## infra: unified batch convention
+
+**Convention (the #18 style, applied from the floor up).** `global_batch_tokens = 524,288` per optimizer step
+(fixed), `micro_batch_tokens = 65,536` per device per forward/backward (asserted `== 65536`: never reduced),
+`accum = global // (micro × world_size)` with `assert global % (micro × world_size) == 0`. `vranks = global //
+micro = 8` is the number of micro-batches per step, i.e. the number of ranks of the record's 8-GPU run.
+
+**Data addressing.** Micro-batch `a` of rank `r` is *virtual rank* `v = r·accum + a`. The loader keeps one
+(shard, position) state per owned virtual rank and applies the record's own read/advance rule to it with the
+record's 8-GPU constants (`pos₀ = v·S`, stride `S·vranks`, `S = micro`). Shard data is cached and shared
+between the virtual ranks a device owns. The record's literal loader is the special case `vranks = world_size`,
+`owned = [rank]` (this is exactly how the validation loader is built).
+
+### Why this is a no-op for record #11 at world_size = 8 (on paper, step by step)
+
+1. **Accumulation count.** Record: `train_accumulation_steps = batch_size // (B·W) = 512 // (64·8) = 1`.
+   Flagged: `accum = 524288 // (65536·8) = 1`. Same.
+2. **Micro-batch shape.** Record: `B = device_batch_size = 64`, `T = 1024`. Flagged: `B = micro // T =
+   65536 // 1024 = 64`, `T = 1024`. Same `(64, 1024)` layout, `.view(B, T)` as before.
+3. **Which tokens each rank reads.** With `accum = 1`, rank `r` owns exactly `v = r`. Its state starts at
+   `pos = r·B·T` in shard 0 (record: `process_rank·B·T`), advances by `B·T·8` (record: `B·T·num_processes`,
+   `num_processes = 8`) and switches shard when `pos + (B·T·8 + 1) > len(tokens)`, resetting to `r·B·T` (record:
+   identical expression and reset). Same reads, same switch points.
+4. **First batch twice.** Record: `x, y = next_batch()` before the loop, then `train_loader.reset()`, so step 0
+   trains on the prefetched first batch and step 1 on the re-read first batch. Flagged
+   (`loader_replay_first_round: true`): the first round over the owned virtual ranks is served without
+   advancing, the loop's in-step prefetch then consumes the first batch, so steps 0 and 1 both train on it and
+   step k ≥ 2 trains on batch k−1. Same. The explicit `train_loader.reset()` is removed because the replay flag
+   replaces it (keeping both would replay twice).
+5. **Validation.** `val_steps = val_tokens // (B·T·W)` is unchanged and the val loader is constructed with
+   `vranks = world_size, owned = [rank]`, i.e. literally the record's loader. Same reads.
+6. **Loss scaling across accumulation.** Unchanged code: each micro-step computes the mean cross-entropy over
+   its 65,536 tokens and calls `backward()` (under `no_sync()` except on the last micro-step); after the loop
+   every gradient is divided by `train_accumulation_steps`. With `accum = 1` the division is by 1, which is
+   exact in IEEE arithmetic, and `no_sync()` is never entered — as in the record.
+7. **Everything after the gradients** (Muon, Adam, schedule, momentum warmup) is untouched.
+
+Hence at world_size 8 the flagged r11 path performs the same operations on the same data in the same order as
+record #11. **This is an argument from code reading; it has not been executed** (`DEFERRED_RUNTIME_CHECKS.md`).
+
+### What the convention guarantees at world_size ∈ {1, 2, 4}
+
+* **Data.** Each step trains on the same 8 micro-batches as the 8-GPU record run (virtual rank `v` reads what
+  rank `v` read), including across shard boundaries and the first-batch replay. This is *not* what the record's
+  code would literally do on fewer GPUs: its loader's shard switch depends on `world_size`, and its
+  prefetch/reset quirk becomes per-micro-step (see `work/EXPLORATION.md` §8: with 100M-token shards the literal
+  1-GPU and 8-GPU streams diverge at step 189). Verified by executing only the loader classes on synthetic
+  shards: `python -I tools/loader_equivalence.py <r11 snapshot> train_flagged.py configs/r11.yaml --protocol r11`
+  → identical micro-batch offsets at world_size 1, 2, 4, 8 for 600 steps spanning 50+ shard switches (negative
+  control: disabling the replay makes every world size differ from step 1).
+* **Gradient.** DDP averages over `W` ranks the locally accumulated sum of `accum` micro-step gradients; the
+  division by `accum` then gives `(1/(W·accum)) Σ_{r,a} ∇L_{r,a} = (1/8) Σ_v ∇L_v`, the same quantity the
+  8-GPU run computes as `(1/8) Σ_r ∇L_r`. Equal in exact arithmetic; floating-point summation order differs
+  (local bf16 accumulation of embedding/scalar gradients over `accum` steps vs NCCL's cross-rank sum), so
+  results are equal only up to rounding. Not verified at runtime.
+* **Muon.** Record #11's Muon assigns parameter `i` to rank `i % W` and all-reduces a bf16 buffer where only
+  the owner writes non-zeros (x + 0 = x exactly); every parameter's update is computed from the same
+  all-reduced gradient and its own momentum state, so the update does not depend on `W`.
+* **Later presets.** Record #18's literal code *sums* micro-batch gradients without dividing (identical at
+  `accum = 1`, i.e. on 8 GPUs). The flagged trainer always averages; on fewer GPUs this reproduces the 8-GPU
+  computation rather than #18's literal fewer-GPU behaviour. Recorded again in `ledger/r18.yaml`.

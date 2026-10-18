@@ -309,11 +309,21 @@ def _load_data_shard(filename):
     return tokens
 
 class DistributedDataLoader:
-    def __init__(self, filename_pattern, B, T, process_rank, num_processes):
-        self.process_rank = process_rank
-        self.num_processes = num_processes
+    # infra (unified batch convention): serves B x T-token micro-batches for a list of *virtual ranks*.
+    # Virtual rank v reads exactly what rank v of a `vranks`-GPU run of the record reads (same offsets, same
+    # shard-advance rule), so the token stream of the 8-GPU record run is reproduced on any world_size.
+    # The record's own loader is the special case vranks == world_size, owned == [rank]. See CHANGES/infra.md.
+    def __init__(self, filename_pattern, B, T, vranks, owned, shard_rule, replay_first_round=False):
         self.B = B
         self.T = T
+        self.vranks = vranks
+        self.owned = list(owned)
+        assert shard_rule in ('gt_plus1',), f"unknown shard_rule {shard_rule}"
+        self.shard_rule = shard_rule
+        # record #11 consumed its first batch twice (prefetch, then train_loader.reset() before the loop);
+        # replay_first_round reproduces that at step granularity: the first round over the owned virtual
+        # ranks is served without advancing them.
+        self.replay_first_round = replay_first_round
 
         # glob files that match the pattern
         self.files = sorted(glob.glob(filename_pattern))
@@ -323,7 +333,7 @@ class DistributedDataLoader:
         ntok_total = 0
         for fname in self.files:
             shard_ntok = _peek_data_shard(fname)
-            assert shard_ntok >= num_processes * B * T + 1
+            assert shard_ntok >= vranks * B * T + 1
             ntok_total += int(shard_ntok)
         self.ntok_total = ntok_total
 
@@ -331,26 +341,39 @@ class DistributedDataLoader:
         self.reset()
 
     def reset(self):
-        self.current_shard = 0
-        self.current_position = self.process_rank * self.B * self.T
-        self.tokens = _load_data_shard(self.files[self.current_shard])
+        self.shards = {} # shard index -> tokens, shared by the owned virtual ranks
+        self.states = [dict(v=v, shard=0, pos=v * self.B * self.T) for v in self.owned]
+        self.cursor = 0
+        self.round = 0
 
-    def advance(self): # advance to next data shard
-        self.current_shard = (self.current_shard + 1) % len(self.files)
-        self.current_position = self.process_rank * self.B * self.T
-        self.tokens = _load_data_shard(self.files[self.current_shard])
+    def shard_tokens(self, shard):
+        if shard not in self.shards:
+            live = {st['shard'] for st in self.states}
+            for k in list(self.shards):
+                if k not in live:
+                    del self.shards[k]
+            self.shards[shard] = _load_data_shard(self.files[shard])
+        return self.shards[shard]
 
     def next_batch(self):
         B = self.B
         T = self.T
-        buf = self.tokens[self.current_position : self.current_position+B*T+1]
+        st = self.states[self.cursor]
+        tokens = self.shard_tokens(st['shard'])
+        buf = tokens[st['pos'] : st['pos']+B*T+1]
         buf = torch.tensor(buf.astype(np.int32), dtype=torch.long)
         x = (buf[:-1]).view(B, T) # inputs
         y = (buf[1:]).view(B, T) # targets
-        # advance current position and load next shard if necessary
-        self.current_position += B * T * self.num_processes
-        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
-            self.advance()
+        if not (self.replay_first_round and self.round == 0):
+            # advance current position and load next shard if necessary (rule of the record being replayed)
+            st['pos'] += B * T * self.vranks
+            if st['pos'] + (B * T * self.vranks + 1) > len(tokens): # 'gt_plus1': record #11
+                st['shard'] = (st['shard'] + 1) % len(self.files)
+                st['pos'] = st['v'] * B * T
+        self.cursor += 1
+        if self.cursor == len(self.states):
+            self.cursor = 0
+            self.round += 1
         return x.cuda(), y.cuda()
 
 # -----------------------------------------------------------------------------
@@ -363,9 +386,11 @@ class Hyperparameters:
     input_bin : str # input .bin to train on
     input_val_bin : str # input .bin to eval validation loss on
     # optimization hyperparams
-    batch_size : int # batch size, in sequences, across all devices
-    device_batch_size : int # batch size, in sequences, per device
-    sequence_length : int # sequence length, in tokens
+    global_batch_tokens : int # tokens per optimizer step, across all devices (fixed; independent of world_size)
+    micro_batch_tokens : int # tokens per device per forward/backward (65,536 in every record; never reduced)
+    sequence_length : int # attention row length of the dense layout, in tokens
+    loader_shard_rule : str # shard-advance rule of the record's loader (replayed per virtual rank)
+    loader_replay_first_round : bool # record #11 trained on its first batch twice
     num_iterations : int # number of iterations to run
     warmup_iters : int
     warmdown_iters : int # number of iterations of linear warmup/warmdown for triangular or trapezoidal schedule
@@ -428,18 +453,25 @@ torch.cuda.set_device(device)
 print(f"using device: {device}")
 master_process = (ddp_rank == 0) # this process will do logging, checkpointing etc.
 
-# convenience variables
-B, T = args.device_batch_size, args.sequence_length
+# convenience variables (infra: unified batch convention, see CHANGES/infra.md)
+T = args.sequence_length
+assert args.micro_batch_tokens == 65536, "micro-batch is 65,536 tokens per device in every record; never reduce it"
+assert args.micro_batch_tokens % T == 0
+B = args.micro_batch_tokens // T # rows of the dense layout
 # calculate the number of steps to take in the val loop.
 assert args.val_tokens % (B * T * ddp_world_size) == 0
 val_steps = args.val_tokens // (B * T * ddp_world_size)
 # calculate the steps of gradient accumulation required to attain the desired global batch size.
-assert args.batch_size % (B * ddp_world_size) == 0
-train_accumulation_steps = args.batch_size // (B * ddp_world_size)
+assert args.global_batch_tokens % (args.micro_batch_tokens * ddp_world_size) == 0, "world_size must divide global/micro"
+train_accumulation_steps = args.global_batch_tokens // (args.micro_batch_tokens * ddp_world_size)
+vranks = args.global_batch_tokens // args.micro_batch_tokens # micro-batches per step = ranks of the 8-GPU record run
+assert train_accumulation_steps * ddp_world_size == vranks
 
 # load tokens
-train_loader = DistributedDataLoader(args.input_bin, B, T, ddp_rank, ddp_world_size)
-val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_rank, ddp_world_size)
+train_loader = DistributedDataLoader(args.input_bin, B, T, vranks,
+                                     range(ddp_rank * train_accumulation_steps, (ddp_rank + 1) * train_accumulation_steps),
+                                     args.loader_shard_rule, args.loader_replay_first_round)
+val_loader = DistributedDataLoader(args.input_val_bin, B, T, ddp_world_size, [ddp_rank], args.loader_shard_rule)
 if master_process:
     print(f"Training DataLoader: total number of tokens: {train_loader.ntok_total} across {len(train_loader.files)} files")
     print(f"Validation DataLoader: total number of tokens: {val_loader.ntok_total} across {len(val_loader.files)} files")
@@ -519,7 +551,6 @@ training_time_ms = 0
 torch.cuda.synchronize()
 t0 = time.time()
 # begin training
-train_loader.reset()
 for step in range(args.num_iterations + 1):
     last_step = (step == args.num_iterations)
     # This effectively ignores timing first 10 steps, which are slower for weird reasons.
