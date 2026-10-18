@@ -103,6 +103,8 @@ PROTOCOLS = {
     # records #12-#13: DistributedDataLoader(pattern, B=1, T=64K, rank, W); no reset before the loop
     'r12': dict(ctor=lambda B, T, r, W: (1, B * T, r, W)),
     'r13': dict(ctor=lambda B, T, r, W: (1, B * T, r, W)),
+    # records #14-#17: DistributedDataLoader(pattern, T=64K, rank, W)
+    'r14': dict(ctor=lambda B, T, r, W: (B * T, r, W)),
 }
 
 def main():

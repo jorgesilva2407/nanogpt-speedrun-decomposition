@@ -37,6 +37,7 @@ flag:doc_masking            snapshot=False                                  pres
 flag:flex_kernel            snapshot=False                                  preset=False                                  match
 flag:long_context           snapshot=False                                  preset=False                                  match
 flag:rotary_variant         snapshot=v11                                    preset=v11                                    match
+flag:value_embeds           snapshot=False                                  preset=False                                  match
 flag:window_warmup          snapshot=False                                  preset=False                                  match
 configs/r11.yaml: 0 mismatches
 params: snapshot total 162,201,642 (162.2M) {'embed': 38633472, 'blocks': 84934692, 'other': 6, 'lm_head': 38633472}

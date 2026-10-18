@@ -230,6 +230,10 @@ class Interp:
         elif isinstance(target, ast.Tuple):
             for t, v in zip(target.elts, val):
                 self.assign(t, v, env)
+        elif isinstance(target, ast.Subscript):
+            base = self.eval(target.value, env)
+            if isinstance(base, (dict, list)):
+                base[self.eval(target.slice, env)] = val
         else:
             pass  # e.g. self.x.y = ... : not parameter-creating in these scripts
 

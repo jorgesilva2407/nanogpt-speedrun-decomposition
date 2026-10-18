@@ -8,6 +8,7 @@ flags:
   doc_masking: true
   rotary_variant: v12
   window_warmup: true
+  value_embeds: false
 hparams:
   input_bin: data/fineweb10B/fineweb_train_*.bin
   input_val_bin: data/fineweb10B/fineweb_val_*.bin

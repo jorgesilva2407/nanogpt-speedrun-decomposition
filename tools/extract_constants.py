@@ -164,8 +164,11 @@ def detect_flags(s: Snapshot):
         f['rotary_variant'] = 'v11'
     elif 'self.inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, device=x.device).float() / self.dim))' in src:
         f['rotary_variant'] = 'v12'
+    elif "self.register_buffer('inv_freq', (1 / base) ** (torch.arange(0, dim, 2) / dim))" in src:
+        f['rotary_variant'] = 'v14'
     else:
         f['rotary_variant'] = None
+    f['value_embeds'] = ('vte = nn.Embedding' in src) or ('self.value_embeds' in src)
     return f
 
 def main():

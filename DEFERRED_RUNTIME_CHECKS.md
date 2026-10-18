@@ -48,3 +48,13 @@ Notation: `run_one` = `python launch/run_one.py`; "8-GPU" = `torchrun --nproc_pe
 | smoke train | NOT RUN (by design) | 20 steps preset r13; window tensor follows 64, 64, … (print attn_blocksize) |
 | torch.compile behaviour | NOT RUN (by design) | the window is a tensor captured by the mask_mod: no recompilation when its value changes (count recompiles over 200 steps) |
 | fixed point | NOT RUN (by design) | full run vs committed logs (7 runs, mean final 3.2770 at 1750) |
+
+## r14 (record #14)
+
+| check | status | how / pass criterion |
+|---|---|---|
+| state_dict load | NOT RUN (by design) | static gate PASS (100 tensors + 12 buffers identical); `strict=True` load incl. `rotary.inv_freq` buffers |
+| forward equivalence | NOT RUN (by design) | snapshot vs flagged r14 bitwise identical loss; additionally assert `rotary.inv_freq.dtype == torch.bfloat16` after `model.bfloat16()` (the v14 reading) |
+| smoke train | NOT RUN (by design) | 20 steps preset r14; peak memory recorded (vte output 65,536 × 9,216 bf16 per micro-batch) |
+| torch.compile behaviour | NOT RUN (by design) | Rotary's Python-side cache inside the compiled graph: no recompilation after step 1 |
+| fixed point | NOT RUN (by design) | full run vs committed logs (38 runs, mean final 3.2776 at 1530) |
