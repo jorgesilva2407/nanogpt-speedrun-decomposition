@@ -12,6 +12,9 @@
 #   HOST_LABEL    one label for the whole study, e.g. vast-h100 (must equal study.yaml throughput.host)
 #   TIER          fixed_points | p1 | p2 | p3 | throughput
 #   WORKERS, WORKER   this instance's share, e.g. WORKERS=8 WORKER=3 (0-based); default 1 / 0
+#   DRY_RUN=1     check everything except training, on any machine (no GPU, no data download): clone at the tag,
+#                 build the job list, dry-run each job, upload a test file to RESULTS_REPO. Run this on a laptop
+#                 before renting anything, e.g. WORKDIR=/tmp/wtest DRY_RUN=1 ... bash launch/cloud_worker.sh
 # Then:  bash -c "$(curl -fsSL -H "Authorization: token $GH_TOKEN" \
 #          https://raw.githubusercontent.com/jorgesilva2407/nanogpt-speedrun-decomposition/$STUDY_TAG/launch/cloud_worker.sh)"
 set -euo pipefail
@@ -20,16 +23,18 @@ WORKERS="${WORKERS:-1}"; WORKER="${WORKER:-0}"
 REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/jorgesilva2407/nanogpt-speedrun-decomposition.git"
 ROOT="${WORKDIR:-/workspace}/study"; LOG="${WORKDIR:-/workspace}/worker.log"
 exec > >(tee -a "$LOG") 2>&1
-echo "== $(date -u +%FT%TZ) worker $WORKER/$WORKERS tier $TIER on $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader)"
+GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "no GPU")
+echo "== $(date -u +%FT%TZ) worker $WORKER/$WORKERS tier $TIER on $GPU${DRY_RUN:+ (DRY RUN)}"
 
 [ -d "$ROOT/.git" ] || git clone -q --depth 1 --branch "$STUDY_TAG" "$REPO_URL" "$ROOT"
 cd "$ROOT"
 [ -n "$(git tag --points-at HEAD | grep -x "$STUDY_TAG")" ] || { echo "checkout is not at $STUDY_TAG"; exit 1; }
-[ -e data/fineweb10B/fineweb_train_000018.bin ] || python data/cached_fineweb10B.py 18   # val + 18 x 100M tokens
 export DOCKER_TAG HF_TOKEN
+PY=$(command -v python || command -v python3)
+
 
 upload() {  # upload results/<rel> to <rel> in the HF dataset repo
-  python -I - "$RESULTS_REPO" "$1" <<'PY'
+  $PY -I - "$RESULTS_REPO" "$1" <<'PY'
 import sys
 from huggingface_hub import HfApi
 repo, rel = sys.argv[1], sys.argv[2]
@@ -39,26 +44,47 @@ api.upload_folder(repo_id=repo, repo_type='dataset', folder_path=f'results/{rel}
 PY
 }
 in_repo() {
-  python -I -c "import sys; from huggingface_hub import HfApi; sys.exit(0 if HfApi().file_exists('$RESULTS_REPO', '$1', repo_type='dataset') else 1)" 2>/dev/null
+  $PY -I -c "import sys; from huggingface_hub import HfApi; sys.exit(0 if HfApi().file_exists('$RESULTS_REPO', '$1', repo_type='dataset') else 1)" 2>/dev/null
 }
+
+if [ "${DRY_RUN:-0}" = 1 ]; then
+  echo "-- jobs for tier $TIER, worker $WORKER/$WORKERS:"
+  if [ "$TIER" = throughput ]; then
+    $PY -I -c "import json;print('\n'.join(j['exp_id'] for j in json.load(open('experiments/matrix.json'))['throughput_jobs']))"
+  else
+    $PY -I launch/make_jobs.py --tier "$TIER" --workers "$WORKERS" --worker "$WORKER" | tee jobs.txt
+    while read -r exp name seed; do
+      [ -z "$exp" ] && continue
+      $PY -I launch/run_one.py --exp "$exp" --name "$name" --seed "$seed" --host "$HOST_LABEL" --nproc 1 --dry-run >/dev/null \
+        && echo "   ok  $name seed$seed" || { echo "   FAILED dry run: $name seed$seed"; exit 1; }
+    done < jobs.txt
+  fi
+  echo "-- test upload to $RESULTS_REPO:"
+  mkdir -p results/_selftest && echo "selftest $(date -u +%FT%TZ) tag=$STUDY_TAG image=$DOCKER_TAG host=$HOST_LABEL" > results/_selftest/ok.txt
+  upload _selftest || { echo "   FAILED: cannot upload to $RESULTS_REPO (check HF_TOKEN write access, RESULTS_REPO name, huggingface_hub installed)"; exit 1; }
+  echo "   upload ok: $RESULTS_REPO/_selftest/ok.txt"
+  echo "== DRY RUN passed: clone, job list, configs and upload all work"; exit 0
+fi
+
+[ -e data/fineweb10B/fineweb_train_000018.bin ] || $PY data/cached_fineweb10B.py 18   # val + 18 x 100M tokens
 
 if [ "$TIER" = throughput ]; then
   # All throughput jobs on this one instance, back to back (the whole GPU is rented, so 'idle' is answered yes).
-  for exp in $(python -I -c "import json;print(' '.join(j['exp_id'] for j in json.load(open('experiments/matrix.json'))['throughput_jobs']))"); do
+  for exp in $($PY -I -c "import json;print(' '.join(j['exp_id'] for j in json.load(open('experiments/matrix.json'))['throughput_jobs']))"); do
     if [ -n "$(ls -d results/throughput/$exp/$HOST_LABEL/*/run/seed0/DONE 2>/dev/null)" ]; then echo "skip throughput $exp"; continue; fi
-    echo yes | python -I launch/throughput.py --exp "experiments/runs/$exp" --host "$HOST_LABEL" --nproc 1 \
+    echo yes | $PY -I launch/throughput.py --exp "experiments/runs/$exp" --host "$HOST_LABEL" --nproc 1 \
       || { echo "FAILED throughput $exp"; continue; }
     upload "throughput/$exp"
   done
   echo "== throughput finished $(date -u +%FT%TZ)"; exit 0
 fi
 
-python -I launch/make_jobs.py --tier "$TIER" --workers "$WORKERS" --worker "$WORKER" > jobs.txt
+$PY -I launch/make_jobs.py --tier "$TIER" --workers "$WORKERS" --worker "$WORKER" > jobs.txt
 while read -r exp name seed <&3; do
   [ -z "$exp" ] && continue
   if in_repo "$name/seed$seed/DONE"; then echo "skip $name seed$seed (already in $RESULTS_REPO)"; continue; fi
   t0=$(date +%s)
-  if python -I launch/run_one.py --exp "$exp" --name "$name" --seed "$seed" --host "$HOST_LABEL" --nproc 1; then
+  if $PY -I launch/run_one.py --exp "$exp" --name "$name" --seed "$seed" --host "$HOST_LABEL" --nproc 1; then
     [ -e "results/$name/seed$seed/wall_seconds" ] || echo $(( $(date +%s) - t0 )) > "results/$name/seed$seed/wall_seconds"
     upload "$name/seed$seed" && echo "uploaded $name seed$seed ($(cat results/$name/seed$seed/wall_seconds) s)"
   else
