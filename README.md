@@ -306,7 +306,7 @@ All taken on 2026-11-04 except D8 (2026-10-18). Reasoning in `OPEN_DECISIONS.md`
 | D3 | v8 validation cadence (every 125, every 25 in the final third, full set). |
 | D4 | Window warmup kept as is; A2's add-one-in is a truncated mechanism and its LOO/AOI gap is reported as structurally inflated. |
 | D5 | Softcap prediction signed off as registered. |
-| D6 | All-cloud schedule: freeze 2026-11-05, sweep 2026-11-05 to 2026-11-08. |
+| D6 | All-cloud schedule: freeze 2026-11-04 evening, sweep 2026-11-05 to 2026-11-07, results freeze 2026-11-08. |
 | D7 | 3 seeds everywhere; no AdamW LR sweep. |
 | D8 | Stable `torch==2.6.0+cu126` replaces the pruned nightly (2026-10-18). |
 | D9 | One GPU model for every run: H100 SXM 80GB. |
