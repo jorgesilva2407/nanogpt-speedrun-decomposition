@@ -1,0 +1,31 @@
+# Builds the pinned study image (launch/Dockerfile) and pushes it to GitHub's container registry.
+# Run it from the Actions tab ("Run workflow"). The image tag is the commit SHA; use that exact tag everywhere.
+name: study-image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Free disk space (CUDA devel base + torch is ~15 GB unpacked)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          docker system prune -af
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: launch/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/modded-nanogpt-flagged:${{ github.sha }}
+      - run: echo "IMAGE=ghcr.io/${{ github.repository_owner }}/modded-nanogpt-flagged:${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
