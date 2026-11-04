@@ -17,8 +17,9 @@ the group's proposal (v8, kept outside this repository). References like "propos
 > **Status (2026-10-18).** The trainer, the replay of all eight records, the experiment matrix, the launch tooling
 > and the analysis code are written and **statically verified**. **Nothing has been executed with torch or on a
 > GPU yet.** Everything that still needs a GPU is listed in [`DEFERRED_RUNTIME_CHECKS.md`](DEFERRED_RUNTIME_CHECKS.md).
-> The next step is the feasibility spike in [`SPIKE.md`](SPIKE.md). Seven design decisions are still open, see
-> [`OPEN_DECISIONS.md`](OPEN_DECISIONS.md).
+> **2026-11-04:** all open decisions are taken ([`OPEN_DECISIONS.md`](OPEN_DECISIONS.md)). The study runs entirely
+> on rented H100 SXM 80GB instances (`launch/make_jobs.py`, `launch/cloud_worker.sh`); the feasibility spike is
+> dropped and the fixed-point runs serve as the first runtime validation.
 
 ---
 
@@ -294,19 +295,25 @@ every 25 in the final third, on the full validation set. `study.yaml: validation
 * **The records are not GPU-count invariant.** The 1-GPU and 8-GPU streams diverge at step 189, despite the README
   claim, which #16 itself softens. Section 2 above describes the fix.
 
-## Open decisions ([`OPEN_DECISIONS.md`](OPEN_DECISIONS.md))
+## Decisions ([`OPEN_DECISIONS.md`](OPEN_DECISIONS.md))
+
+All taken on 2026-11-04 except D8 (2026-10-18). Reasoning in `OPEN_DECISIONS.md`.
 
 | | decision |
 |---|---|
-| D1 | What leave-one-out means for an arm that other kept switches depend on (A1a, A1b, A3, A4, A5). Four options are listed, **not decided**. |
-| D2 | Configuration count. The proposal says 14, its own arm table implies 16, and the generated matrix has 25 (113 runs). |
-| D3 | Validation cadence: v8 default vs the 20%-subset mode. |
-| D4 | Window warmup without the 64K layout only partly applies. |
-| D5 | Sign-off on the registered softcap prediction. |
-| D6 | The proposal's freeze and sweep dates have passed. |
-| D7 | Which arms get 5 seeds (RQ2), and the AdamW sweep starting points. |
-
-Decided: **D8**, the torch build. Stable `torch==2.6.0+cu126` replaces the pruned nightly (2026-10-18).
+| D1 | O4: no leave-one-out for A1a, A1b, A3, A4, A5 (add-one-in only); RQ2 covers six arms. |
+| D2 | The generated matrix: 21 configurations (2 fp, 11 aoi, 6 loo, 2 ctrl), 63 runs. Supersedes the proposal's 14. |
+| D3 | v8 validation cadence (every 125, every 25 in the final third, full set). |
+| D4 | Window warmup kept as is; A2's add-one-in is a truncated mechanism and its LOO/AOI gap is reported as structurally inflated. |
+| D5 | Softcap prediction signed off as registered. |
+| D6 | All-cloud schedule: freeze 2026-11-05, sweep 2026-11-05 to 2026-11-08. |
+| D7 | 3 seeds everywhere; no AdamW LR sweep. |
+| D8 | Stable `torch==2.6.0+cu126` replaces the pruned nightly (2026-10-18). |
+| D9 | One GPU model for every run: H100 SXM 80GB. |
+| D10 | Many rented machines of that model with the pinned image are one host class (`vast-h100`). |
+| D11 | Throughput: all 21 jobs back to back on one rented instance; only deltas are reported. |
+| D12 | Fixed point passes if \|3-seed mean − record\| < 2.3σ̂ and the curve tracks the record's final third. |
+| D13 | Cut line fixed in advance from r = measured / estimated fixed-point wall time. |
 
 ## Repository map
 

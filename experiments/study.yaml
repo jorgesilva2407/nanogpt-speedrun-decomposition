@@ -4,10 +4,10 @@ seeds:
   default: 3                 # RQ1
   rq2: 5                     # arms in rq2_arms (difference of differences has twice the variance; proposal 5.1)
   first_seed: 0
-rq2_arms: [A1a, A1b, A2, A3, A4, A4b, A5, A5b, A6, A6b, A7]   # config field; fixed points get the maximum seed count
+rq2_arms: []                 # D7 (2026-11-04): 3 seeds everywhere; RQ2 reported as underpowered below +-65 steps
 adamw_lr_sweep:              # arm A8 (positive control): AdamW LR sweep, proposal section 3 'declared limitation'
   values: [0.0009, 0.0018, 0.0036]
-  bases: [r18, r11]
+  bases: []                   # D7 (2026-11-04): no AdamW LR sweep; A8 read as an upper bound
 rq3b:
   budget_scales: [0.5, 0.75] # num_iterations multipliers; absolute-step hparams are rescaled with it (listed per config)
   resolved_arms: []          # RQ3 runs only on arms resolved in RQ1 (proposal 5.1); filled after RQ1
@@ -16,11 +16,11 @@ validation:
   mode: v8                   # v8 (val every 125, every 25 in the final third, full set) | subset20 (every 5 in the
                              # final third on a fixed 20% subset): the open decision never folded into the proposal
 split_subarms: false         # true: separable sub-arms (arms.yaml) become their own leave-one-out/add-one-in pairs
-loo_prerequisite_policy: undecided   # see OPEN_DECISIONS.md; matrix.py emits no configuration for undefined LOOs
+loo_prerequisite_policy: aoi_only    # D1 = O4 (2026-11-04): no LOO for A1a, A1b, A3, A4, A5 (matrix.py emits none)
 throughput:
   steps: 300                 # steady-state steps per throughput job (lab A100, otherwise-idle node only)
-  host: lab-a100
+  host: vast-h100             # D9-D11 (2026-11-04): one GPU model (H100 SXM 80GB), one image = one host class
 cross_hardware:              # named experiment, analysed separately (never pooled)
   exp_id: fp_r18
   seed: 0
-  hosts: [lab-a100, rented-h100]
+  hosts: [vast-h100]          # D9 (2026-11-04): no second GPU model; cross-hardware check dropped

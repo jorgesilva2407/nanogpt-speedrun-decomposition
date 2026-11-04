@@ -1,4 +1,27 @@
-# Open decisions (for the group; none is resolved in code)
+# Decisions
+
+All decisions below were **taken on 2026-11-04** (D8 on 2026-10-18) and are implemented in `experiments/study.yaml`,
+`launch/make_jobs.py` and the regenerated matrix. The section "Background" further down is the original write-up of
+each open question (2026-10-18), kept unchanged so the options and their trade-offs stay on record.
+
+## Decided 2026-11-04
+
+| | decision | why (short) | where |
+|---|---|---|---|
+| D1 | **O4**: no leave-one-out for A1a, A1b, A3, A4, A5; add-one-in only. RQ2 covers A2, A4b, A5b, A6, A6b, A7. | Free; the LOO is undefined for these arms. First extra purchase if money remains after P2: O1 for the VE ladder only (cumulative LOO of A3/A4/A5, 3 configurations, ~$5.5). Note: O1 does not inflate variance as the background text below says. The per-rung estimate is a difference of two configuration means against the same fp_r18, so it is 2σ²/n, like any RQ1 difference. | `study.yaml: loo_prerequisite_policy: aoi_only` |
+| D2 | **21 configurations, 63 runs** (2 fp, 11 aoi, 6 loo, 2 ctrl). The proposal's "14" is superseded. | Unbundled sub-arms are part of the contribution; the report says so. | `experiments/matrix.json` |
+| D3 | **v8 cadence**: full validation set every 125 steps, every 25 in the final third. | The subset20 path has never run and there is no spike to exercise it; the fixed-point check compares against full-set record logs. | `study.yaml: validation.mode: v8` |
+| D4 | **Keep** window warmup as is (requires only `flex_kernel`). | On r11's 1,024-token rows the window stops restricting at ≈0.56 N, so A2's add-one-in measures a truncated mechanism. A2's LOO−AOI gap is reported in its own row as **structurally inflated** and does not count toward H2 on its own. | report |
+| D5 | **Signed off**: softcap 30→15 registered as "no sample-efficiency effect". | A7 is softcap alone (the #18 rewrite's other changes are separate switches), so the test is clean either way; editing a pre-registration the day before the first run invites doubt. | `prereg/predictions.yaml` (unchanged, tag `prereg-v1`) |
+| D6 | **All-cloud schedule**: freeze Thu 2026-11-05 morning; fixed points and throughput Thu; go/no-go Thu evening; P1 (and P2) Fri 2026-11-06 to Sun 2026-11-08. | The lab A100 is no longer available; the spike is dropped (fixed points are the first runtime validation; single-GPU runs everywhere make S3 moot). | `launch/cloud_worker.sh` |
+| D7 | **3 seeds everywhere; no AdamW LR sweep.** | RQ2 MDE ±65 steps at σ=0.0013: H2 reported as underpowered below that, not as unsupported. Money left after P1 goes to P2 (more arms) before more seeds. Without the sweep, A8 compares AdamW at a borrowed LR (0.0018, record #2's) with co-tuned Muon: reported as an upper bound on Muon's advantage. | `study.yaml: rq2_arms: []`, `adamw_lr_sweep.bases: []` |
+| D9 | **One GPU model for every run: H100 SXM 80GB** (rule: H100 if its price < 2.3× the A100's). | Avoids the A100-specific FlexAttention backward-tile risk under torch 2.6.0; 2.3× faster wall-clock; leaderboard hardware. Mixing GPU models would change autotuned kernels. | `study.yaml: throughput.host: vast-h100` |
+| D10 | **Many rented machines of that model, running the pinned image, are one host class** (`vast-h100`), replacing proposal Rule 2's one-machine rule. | Steps-to-target depends on the token stream, the stack and the kernels, all pinned. Cross-machine nondeterminism lands in σ (seeds run on different machines), so it widens the CIs instead of biasing a Δ. Declared in the report. | `HOST_LABEL=vast-h100` |
+| D11 | **Throughput**: all 21 jobs back to back on one rented instance in one session; only Δ tokens/s reported. | Replaces Rule 3's idle lab node; ratios within one session are comparable even if absolute tokens/s carry host noise. | `TIER=throughput` |
+| D12 | **Fixed-point pass**: \|mean of 3 seeds − record final loss\| < 2.3σ̂ (σ̂ = SD of the 3 seeds), and the curve tracks the record's logged curve through the final third. Records: #11 3.2753 at step 3000, #18 3.2785 at step 1390. | A 3-seed mean against one logged run differs with SD σ√(1+1/3) ≈ 1.15σ, so the 95% band is ≈ ±2.3σ (±0.003 at σ=0.0013, ±0.012 at σ=0.005). On failure: debug until Fri 2026-11-06, then sweep anyway and report the fixed points as unverified. | go/no-go |
+| D13 | **Tiers and cut line, fixed in advance.** P1 = fixed points + A2, A4b, A6, A6b, A7 (both directions) + A1a, A3 (add-one-in; they carry primary-source predictions, which H1 needs) + A8 control. P2 = A1b, A4, A5 (add-one-in). P3 = A5b (throughput still measured). With r = measured / estimated fixed-point wall time (estimates: fp_r11 ≈ 4,250 s, fp_r18 ≈ 2,200 s on H100): r ≤ 1.0 → P1 + P2; 1.0 < r ≤ 1.3 → P1; r > 1.3 → P1 without `ctrl_A8_r11`. Always: remaining P1 cost ≈ 39 H100-h × r × $/h must fit the credit left with 15% spare for re-runs. | Deciding after seeing the spend invites sunk-cost choices. | `launch/make_jobs.py: TIERS` |
+
+## Background (as written 2026-10-18; options and trade-offs)
 
 ## D1 — Leave-one-out for an arm that another arm requires  (STOPPED HERE, per the build brief)
 
