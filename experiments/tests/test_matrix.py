@@ -61,7 +61,7 @@ def test_loo_keeps_r18_hparams_and_softcap_arm_is_config():
 
 def test_seed_counts():
     c = by_id(build())
-    assert len(c['fp_r18']['seeds']) == 5 and len(c['aoi_A3']['seeds']) == 5 and len(c['ctrl_A8_r18']['seeds']) == 3
+    assert len(c['fp_r18']['seeds']) == 3 and len(c['aoi_A3']['seeds']) == 3 and len(c['ctrl_A8_r18']['seeds']) == 3   # D7
 
 def test_rq3b_scaling_rescales_absolute_step_hparams():
     m = build(rq3b=dict(budget_scales=[0.5], resolved_arms=['A7'], absolute_step_hparams=['warmdown_iters', 'warmup_iters', 'muon_momentum_warmup_steps']))

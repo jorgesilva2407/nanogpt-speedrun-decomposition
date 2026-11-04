@@ -111,8 +111,8 @@ def test_primary_table_end_to_end(tmp_path):
         write_full_run(tmp_path, 'aoi_A7', k, 'lab', c=190.0)
         write_full_run(tmp_path, 'fp_r18', k, 'lab', c=180.0)
         write_full_run(tmp_path, 'loo_A7', k, 'lab', c=186.0)
-    write_full_run(os.path.join(tmp_path, 'throughput', 'fp_r18', 'lab-a100', 't1'), 'run', 0, 'lab-a100', c=180.0, timing_ms=150.0)
-    write_full_run(os.path.join(tmp_path, 'throughput', 'loo_A7', 'lab-a100', 't1'), 'run', 0, 'lab-a100', c=186.0, timing_ms=140.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'fp_r18', 'vast-h100', 't1'), 'run', 0, 'vast-h100', c=180.0, timing_ms=150.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'loo_A7', 'vast-h100', 't1'), 'run', 0, 'vast-h100', c=186.0, timing_ms=140.0)
     out = tmp_path / 'table.md'
     text = tables.build(str(tmp_path), str(out))
     row = next(l for l in text.splitlines() if l.startswith('| A7 '))
