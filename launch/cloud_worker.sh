@@ -38,7 +38,9 @@ upload() {  # upload results/<rel> to <rel> in the HF dataset repo
 import sys
 from huggingface_hub import HfApi
 repo, rel = sys.argv[1], sys.argv[2]
-api = HfApi(); api.create_repo(repo, repo_type='dataset', private=True, exist_ok=True)
+api = HfApi()
+if not api.repo_exists(repo, repo_type='dataset'):
+    api.create_repo(repo, repo_type='dataset', private=True)
 api.upload_folder(repo_id=repo, repo_type='dataset', folder_path=f'results/{rel}', path_in_repo=rel,
                   commit_message=f'{rel}')
 PY
