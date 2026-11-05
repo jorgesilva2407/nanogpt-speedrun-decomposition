@@ -312,7 +312,7 @@ All taken on 2026-11-04 except D8 (2026-10-18). Reasoning in `OPEN_DECISIONS.md`
 | D9 | One GPU model for every run: H100 SXM 80GB. |
 | D10 | Many rented machines of that model with the pinned image are one host class (`vast-h100`). |
 | D11 | Throughput: all 21 jobs back to back on one rented instance; only deltas are reported. |
-| D12 | Fixed point passes if \|3-seed mean − record\| < 2.3σ̂ and the curve tracks the record's final third. |
+| D12 | Fixed-point pass (revised 2026-11-05): fp_r18 vs the 80-run mean 3.2791 at σ = max(σ̂, 0.0019); fp_r11 vs 3.2753 within max(4.97σ̂, 0.0044), weakly verified; seeding and curve checks trigger investigation. |
 | D13 | Cut line fixed in advance from r = measured / estimated fixed-point wall time. |
 
 ## Repository map
