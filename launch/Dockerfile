@@ -32,15 +32,17 @@ RUN python -m pip install --upgrade pip && \
 
 RUN pip install -r requirements.txt
 
-# DEVIATION 2: backport pytorch d2ec7f0756 (#143299) into torch 2.6.0's FlexAttention lowering. Without it the backward
-# pass has no valid kernel config on H100 at head_dim 128 (NoValidChoicesError; see launch/Dockerfile.NOTE.md). Applied
-# after requirements.txt so nothing reinstalls torch over the patched file.
-COPY launch/patch_torch_flex.py /modded-nanogpt/patch_torch_flex.py
-RUN python /modded-nanogpt/patch_torch_flex.py && \
-    F=$(python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), '_inductor', 'kernel'))") && \
-    rm -f "$F"/__pycache__/flex_attention*.pyc && \
-    python -m py_compile "$F/flex_attention.py" && \
-    ! grep -q "issues/141603" "$F/flex_attention.py"
+# DEVIATIONS 2 and 3: backport pytorch d2ec7f0756 (#143299; FlexAttention backward has no valid config on H100 at
+# head_dim 128 without it) and ec93aa7f84 (#148921; cuDNN SDPA meta registration, without it the dense #11 path fails
+# assert_size_stride under torch.compile) into torch 2.6.0. See launch/Dockerfile.NOTE.md. Applied after
+# requirements.txt so nothing reinstalls torch over the patched files.
+COPY launch/patch_torch.py /modded-nanogpt/patch_torch.py
+RUN python /modded-nanogpt/patch_torch.py && \
+    T=$(python -c "import os, torch; print(os.path.dirname(torch.__file__))") && \
+    rm -f "$T"/_inductor/kernel/__pycache__/flex_attention*.pyc "$T"/__pycache__/_meta_registrations*.pyc && \
+    python -m py_compile "$T/_inductor/kernel/flex_attention.py" "$T/_meta_registrations.py" && \
+    ! grep -q "issues/141603" "$T/_inductor/kernel/flex_attention.py" && \
+    grep -q "res = torch.empty_like(query_t).transpose(1, 2)" "$T/_meta_registrations.py"
 
 CMD ["bash"]
 ENTRYPOINT []

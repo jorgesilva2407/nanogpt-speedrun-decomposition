@@ -1,4 +1,4 @@
-# The image only needs requirements.txt and the torch patch (launch/Dockerfile); code is cloned on the host at a commit.
+# The image only needs requirements.txt and the torch patch script (launch/Dockerfile); code is cloned on the host at a commit.
 *
 !requirements.txt
-!launch/patch_torch_flex.py
+!launch/patch_torch.py

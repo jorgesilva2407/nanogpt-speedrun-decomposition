@@ -141,9 +141,19 @@ default `(64, 128, 8, 3)` and leaves no choice: the first full-size run (smoke t
 in `loss.backward()` with `NoValidChoicesError` (target `flex_attention_backward`). The nightly contains the follow-up
 `d2ec7f0756` (#143299) that removes the skip and also sets the A100 default to `(32, 128, 4, 3)`.
 
-**Fix:** the image applies `d2ec7f0756` verbatim (`launch/patch_torch_flex.py`, `launch/Dockerfile.NOTE.md`
+**Fix:** the image applies `d2ec7f0756` verbatim (`launch/patch_torch.py`, `launch/Dockerfile.NOTE.md`
 deviation 2). Backward default configs now equal the nightly's on H100 and A100. The trainer is unchanged. Arms that
 use SDPA (#11 dense path) never reached this code.
+
+## compat: cuDNN SDPA meta-registration backport into torch 2.6.0 (2026-11-07)
+
+**Second correction to "compat: torch pin".** The cuDNN SDPA gate was checked statically (row "cuDNN SDPA gate"), but
+not the stride contract between the kernel and its meta function. v2.6.0 (and #18's nightly) contain `1565eba4b4`
+(#138354: cuDNN SDPA output follows the query's memory layout) but not `ec93aa7f84` (#148921, March 2025: the matching
+meta-registration fix). Under `torch.compile` the dense #11 path then fails `assert_size_stride` in the first forward
+(throughput `fp_r11`, H100 SXM). **Fix:** the image applies `ec93aa7f84` verbatim (`launch/patch_torch.py`,
+`launch/Dockerfile.NOTE.md` deviation 3). The trainer is unchanged; 8 configurations (all with `flex_kernel` off) were
+affected.
 
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
