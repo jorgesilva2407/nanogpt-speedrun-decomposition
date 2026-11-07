@@ -11,6 +11,8 @@ fixed points are their own tier and every job runs exactly once.
 
 Assignment: jobs are sorted seed-major (all seed-0 jobs first, so a partial sweep is still a balanced design), longest
 first within a seed, and given greedily to the least-loaded worker. Each worker runs its jobs in that order.
+Tier p1 instead follows PRIORITY within a seed (2026-11-07), and its LAST configurations run after every seed round,
+so a budget shortfall at the end costs the D13 cut candidate first and the both-direction pairs last.
 """
 import argparse, json, os, sys
 
@@ -23,6 +25,11 @@ TIERS = {   # arm ids per tier (decided 2026-11-04, OPEN_DECISIONS.md D13; fixed
     'p3': ['A5b'],                      # #16 MFU tweaks: throughput is measured regardless; steps only if money remains
 }
 FAMILIES = ('aoi', 'loo', 'ctrl')          # the AdamW LR sweep is not run (study.yaml adamw_lr_sweep.bases: [])
+# p1 order inside each seed round (2026-11-07): the RQ2 pairs, each pair's add-one-in and leave-one-out together; the
+# H1-only arms; the cheap positive control. LAST (D13's first cut) runs after all seed rounds. Order only: same jobs.
+PRIORITY = {'p1': ['aoi_A2', 'loo_A2', 'aoi_A4b', 'loo_A4b', 'aoi_A6', 'loo_A6', 'aoi_A6b', 'loo_A6b', 'aoi_A7',
+                   'loo_A7', 'aoi_A1a', 'aoi_A3', 'ctrl_A8_r18']}
+LAST = {'p1': ['ctrl_A8_r11']}
 
 def load():
     with open(os.path.join(HERE, 'experiments', 'matrix.json')) as f:
@@ -42,6 +49,10 @@ def jobs_for(tier):
         arms = set(TIERS[tier])
         sel = [c for c in cfgs if c['family'] in FAMILIES and c['arm'] in arms]
     jobs = [(c['steps'], os.path.join('experiments', 'runs', c['exp_id']), c['exp_id'], s) for c in sel for s in c['seeds']]
+    if tier in PRIORITY:
+        order = PRIORITY[tier] + LAST[tier]
+        assert sorted(order) == sorted({j[2] for j in jobs}), f'PRIORITY/LAST for {tier} do not match its configurations'
+        return sorted(jobs, key=lambda j: (j[2] in LAST[tier], j[3], order.index(j[2])))
     return sorted(jobs, key=lambda j: (j[3], -j[0], j[2]))
 
 def split(jobs, n):

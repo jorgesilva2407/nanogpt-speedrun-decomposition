@@ -155,6 +155,15 @@ meta-registration fix). Under `torch.compile` the dense #11 path then fails `ass
 `launch/Dockerfile.NOTE.md` deviation 3). The trainer is unchanged; 8 configurations (all with `flex_kernel` off) were
 affected.
 
+## launch: p1 job order by priority (2026-11-07)
+
+Order only: tier p1 runs the same 42 jobs, and no configuration, seed or trainer code changes. Seeds stay
+breadth-first. Within a seed round the order is the five both-direction pairs (A2, A4b, A6, A6b, A7, each add-one-in
+next to its leave-one-out), then the add-one-in-only H1 arms (A1a, A3), then `ctrl_A8_r18`. `ctrl_A8_r11` (D13's
+first cut) runs after all three rounds. Before, the order was longest first, so a shortfall at the end of the sweep
+cost `loo_*` seed 2. Now it costs `ctrl_A8_r11` first. `launch/make_jobs.py: PRIORITY, LAST`; the other tiers are
+unchanged.
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:
