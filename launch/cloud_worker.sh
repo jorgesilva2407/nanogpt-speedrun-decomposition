@@ -25,6 +25,16 @@ ROOT="${WORKDIR:-/workspace}/study"; LOG="${WORKDIR:-/workspace}/worker.log"
 exec > >(tee -a "$LOG") 2>&1
 GPU=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "no GPU")
 echo "== $(date -u +%FT%TZ) worker $WORKER/$WORKERS tier $TIER on $GPU${DRY_RUN:+ (DRY RUN)}"
+# Fail fast: after MAX_FAILS consecutive failed runs the worker writes HALTED and exits, and every later invocation on
+# this disk (next tiers, restarts after an outbid) refuses to start, so a systematic crash does not burn rented hours.
+HALTED="${WORKDIR:-/workspace}/HALTED"; MAX_FAILS="${MAX_FAILS:-2}"; fails=0
+[ -e "$HALTED" ] && { echo "== HALTED earlier: $(cat "$HALTED"); not starting. Stop the instance and debug."; exit 3; }
+fail() {  # fail <label>: count a consecutive failure, halt the instance's work at MAX_FAILS
+  fails=$((fails + 1))
+  [ "$fails" -ge "$MAX_FAILS" ] || return 0
+  echo "$(date -u +%FT%TZ) tier $TIER: $fails consecutive failures, last $1" > "$HALTED"
+  echo "== HALTED: $fails consecutive failures (last: $1). Stop the instance and debug."; exit 3
+}
 
 [ -d "$ROOT/.git" ] || git clone -q --depth 1 --branch "$STUDY_TAG" "$REPO_URL" "$ROOT"
 cd "$ROOT"
@@ -75,8 +85,8 @@ if [ "$TIER" = throughput ]; then
   for exp in $($PY -I -c "import json;print(' '.join(j['exp_id'] for j in json.load(open('experiments/matrix.json'))['throughput_jobs']))"); do
     if [ -n "$(ls -d results/throughput/$exp/$HOST_LABEL/*/run/seed0/DONE 2>/dev/null)" ]; then echo "skip throughput $exp"; continue; fi
     echo yes | $PY -I launch/throughput.py --exp "experiments/runs/$exp" --host "$HOST_LABEL" --nproc 1 \
-      || { echo "FAILED throughput $exp"; continue; }
-    upload "throughput/$exp"
+      || { echo "FAILED throughput $exp"; fail "throughput $exp"; continue; }
+    fails=0; upload "throughput/$exp"
   done
   echo "== throughput finished $(date -u +%FT%TZ)"; exit 0
 fi
@@ -87,10 +97,12 @@ while read -r exp name seed <&3; do
   if in_repo "$name/seed$seed/DONE"; then echo "skip $name seed$seed (already in $RESULTS_REPO)"; continue; fi
   t0=$(date +%s)
   if $PY -I launch/run_one.py --exp "$exp" --name "$name" --seed "$seed" --host "$HOST_LABEL" --nproc 1; then
+    fails=0
     [ -e "results/$name/seed$seed/wall_seconds" ] || echo $(( $(date +%s) - t0 )) > "results/$name/seed$seed/wall_seconds"
     upload "$name/seed$seed" && echo "uploaded $name seed$seed ($(cat results/$name/seed$seed/wall_seconds) s)"
   else
     echo "FAILED $name seed$seed after $(( $(date +%s) - t0 )) s (see output above)"
+    fail "$name seed$seed"
   fi
 done 3< jobs.txt
 echo "== worker $WORKER/$WORKERS tier $TIER finished $(date -u +%FT%TZ)"

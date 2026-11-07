@@ -133,6 +133,18 @@ main `8d9ff9c`, in `ext/torch_src/`; `explore_tools/fetch_sources.sh` re-creates
   from Nov–Dec 2024.
 * **Not established without a GPU:** whether kernels, autotuning choices or numerics differ from the nightly's.
 
+## compat: FlexAttention backport into torch 2.6.0 (2026-11-07)
+
+**Correction to the table above.** Row "FlexAttention backward tile sizes" compared `_get_nv_config` only. v2.6.0's
+`flex_attention_backward` also skips every config with `num_warps == 8` (`d35358b`, #141653), which drops the H100
+default `(64, 128, 8, 3)` and leaves no choice: the first full-size run (smoke test 2, fp_r18 seed 0, H100 SXM) failed
+in `loss.backward()` with `NoValidChoicesError` (target `flex_attention_backward`). The nightly contains the follow-up
+`d2ec7f0756` (#143299) that removes the skip and also sets the A100 default to `(32, 128, 4, 3)`.
+
+**Fix:** the image applies `d2ec7f0756` verbatim (`launch/patch_torch_flex.py`, `launch/Dockerfile.NOTE.md`
+deviation 2). Backward default configs now equal the nightly's on H100 and A100. The trainer is unchanged. Arms that
+use SDPA (#11 dense path) never reached this code.
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:

@@ -32,5 +32,15 @@ RUN python -m pip install --upgrade pip && \
 
 RUN pip install -r requirements.txt
 
+# DEVIATION 2: backport pytorch d2ec7f0756 (#143299) into torch 2.6.0's FlexAttention lowering. Without it the backward
+# pass has no valid kernel config on H100 at head_dim 128 (NoValidChoicesError; see launch/Dockerfile.NOTE.md). Applied
+# after requirements.txt so nothing reinstalls torch over the patched file.
+COPY launch/patch_torch_flex.py /modded-nanogpt/patch_torch_flex.py
+RUN python /modded-nanogpt/patch_torch_flex.py && \
+    F=$(python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), '_inductor', 'kernel'))") && \
+    rm -f "$F"/__pycache__/flex_attention*.pyc && \
+    python -m py_compile "$F/flex_attention.py" && \
+    ! grep -q "issues/141603" "$F/flex_attention.py"
+
 CMD ["bash"]
 ENTRYPOINT []
