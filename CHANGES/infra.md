@@ -164,6 +164,17 @@ first cut) runs after all three rounds. Before, the order was longest first, so 
 cost `loo_*` seed 2. Now it costs `ctrl_A8_r11` first. `launch/make_jobs.py: PRIORITY, LAST`; the other tiers are
 unchanged.
 
+## analysis: primary table uses the never-crossed fallback (2026-11-08)
+
+Analysis only: no run, configuration or trainer code changes, and every run already uploaded can be re-tabulated.
+`analysis/tables.py: per_seed_steps` dropped every run that never reached 3.28, although `persistence.py` defines the
+fallback for that case. With the first results (2 of 3 `fp_r18` seeds and every `loo_*` run end just above 3.28), the
+leave-one-out column was empty and the `fp_r11` baseline mean kept only its two faster seeds. A run that never
+crosses now counts as budget step + step-equivalent shortfall, (loss at budget − 3.28) / local slope, the
+`persistence.py` rule; it is still dropped only if the local slope is not positive. Each Δ cell reports how many
+seeds of the baseline and of the arm are extrapolated (`[extrap. k/n base, k/n arm]`). Test:
+`analysis/tests/test_analysis.py: test_primary_table_uses_fallback_for_runs_that_never_cross`.
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:

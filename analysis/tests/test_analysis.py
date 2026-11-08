@@ -91,10 +91,10 @@ def test_incomplete_runs_ignored_and_host_pooling_refused(tmp_path):
         same_host([runs[0]], [runs[1]])
 
 # ---------------------------------------------------------------- primary table, end to end on synthetic results
-def write_full_run(root, name, seed, host, c, timing_ms=None):
+def write_full_run(root, name, seed, host, c, timing_ms=None, a=3.20):
     d = os.path.join(root, name, f'seed{seed}'); os.makedirs(d)
     json.dump(dict(host_label=host, seed=seed, exp_id=name), open(os.path.join(d, 'meta.json'), 'w'))
-    s, l = curve(c=c, every=25, noise=0.001, seed=seed)
+    s, l = curve(a=a, c=c, every=25, noise=0.001, seed=seed)
     with open(os.path.join(d, 'metrics.jsonl'), 'w') as f:
         for st, v in zip(s, l):
             f.write(json.dumps(dict(kind='val', step=int(st), tokens=int(st) * 524288, val_loss=float(v), val_fraction=1.0, wall_clock_s=0)) + '\n')
@@ -122,3 +122,15 @@ def test_primary_table_end_to_end(tmp_path):
     assert cells[4].startswith('+')                                        # 140 ms/step vs 150 ms/step: more tokens/s
     assert '/' in cells[5] and '%' in cells[5]
     assert 'undefined (D1)' in next(l for l in text.splitlines() if l.startswith('| A3 '))
+
+def test_primary_table_uses_fallback_for_runs_that_never_cross(tmp_path):
+    import tables
+    for k in range(3):
+        write_full_run(tmp_path, 'fp_r18', k, 'lab', c=180.0)
+        write_full_run(tmp_path, 'loo_A7', k, 'lab', c=180.0, a=3.285)    # plateaus above 3.28: never crosses
+    runs = group(load_runs(str(tmp_path)))
+    base, arm = tables.per_seed_steps(runs['fp_r18']), tables.per_seed_steps(runs['loo_A7'])
+    assert None not in arm and min(arm) > 1400 > max(base)               # extrapolated past the 1400-step budget
+    row = next(l for l in tables.build(str(tmp_path), str(tmp_path / 't.md')).splitlines() if l.startswith('| A7 '))
+    cell = [c.strip() for c in row.strip('|').split('|')][2]
+    assert cell.startswith('+') and '[extrap. 0/3 base, 3/3 arm]' in cell

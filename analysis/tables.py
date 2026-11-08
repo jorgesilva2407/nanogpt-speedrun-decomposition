@@ -19,12 +19,26 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TARGET = 3.28
 
 def per_seed_steps(runs, threshold=TARGET, which='interpolated'):
+    """Steps to threshold per seed. A run that never crosses gets persistence.py's fallback, budget step +
+    step-equivalent shortfall (an extrapolation); None only if the local slope is not positive."""
     out = []
     for r in runs:
         s, l = r.val_curve(full_only=True)
         res = steps_to_threshold(s, l, threshold)
-        out.append(res[which] if res['crossed'] else None)
+        if res['crossed']:
+            out.append(res[which])
+        else:
+            short = res['step_equivalent_shortfall']
+            out.append(res['budget_step'] + short if np.isfinite(short) else None)
     return out
+
+def n_extrapolated(runs, threshold=TARGET):
+    """How many runs never cross threshold (their steps come from the fallback)."""
+    return sum(not steps_to_threshold(*r.val_curve(full_only=True), threshold)['crossed'] for r in runs)
+
+def extrap_note(base, arm, threshold=TARGET):
+    kb, ka = n_extrapolated(base, threshold), n_extrapolated(arm, threshold)
+    return f' [extrap. {kb}/{len(base)} base, {ka}/{len(arm)} arm]' if kb or ka else ''
 
 def throughput_tokens_per_s(results_root, exp_id, host, tokens_per_step):
     """Mean tokens/s from throughput runs of exp_id on host (results/throughput/<exp_id>/<host>/*/run/seed0)."""
@@ -68,7 +82,7 @@ def build(results_root, out_path):
             d_loo = delta_ci(per_seed_steps(fp18), per_seed_steps(loo)) if fp18 and loo else None
             if fp18 and loo:
                 host = same_host(fp18, loo)
-            loo_cell = fmt(d_loo)
+            loo_cell = fmt(d_loo) + (extrap_note(fp18, loo) if d_loo else '')
             split_cell = tps_cell = 'n/a'
             if fp18 and loo and d_loo and d_loo['delta'] is not None:
                 t0 = throughput_tokens_per_s(results_root, 'fp_r18', study['throughput']['host'], tok)
@@ -93,10 +107,12 @@ def build(results_root, out_path):
                 rq3 = ' ' + ' / '.join(cells) + ' |'
             else:
                 rq3 = ' (not resolved in RQ1) |'
-        rows.append(f"| {a['id']} {a['name']} | {pred} | {loo_cell} | {fmt(d_aoi)} | {tps_cell} | {split_cell} | {gap_cell} |" + rq3)
+        aoi_cell = fmt(d_aoi) + (extrap_note(fp11, aoi) if d_aoi else '')
+        rows.append(f"| {a['id']} {a['name']} | {pred} | {loo_cell} | {aoi_cell} | {tps_cell} | {split_cell} | {gap_cell} |" + rq3)
     text = '\n'.join(rows) + '\n\nΔ steps: interpolated crossing of 3.28 on full-validation points; intervals are 95% Welch t ' \
-           'intervals across seeds. Arms never crossing 3.28 in a run are excluded from that run\'s mean (see persistence.py ' \
-           'for the loss-at-budget fallback). No p-values are reported.\n'
+           'intervals across seeds. A run that never crosses 3.28 counts as budget step + step-equivalent shortfall ' \
+           '(loss at budget − 3.28) / local slope, the persistence.py fallback; [extrap. k/n] says how many seeds of the ' \
+           'baseline and the arm that is. No p-values are reported.\n'
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     open(out_path, 'w').write(text)
     return text
