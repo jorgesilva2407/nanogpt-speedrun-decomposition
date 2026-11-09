@@ -120,7 +120,7 @@ def test_primary_table_end_to_end(tmp_path):
     assert cells[1].startswith('No sample-efficiency effect')
     assert cells[2].startswith('+') and cells[3].startswith('-')         # LOO slower to target, AOI faster
     assert cells[4].startswith('+')                                        # 140 ms/step vs 150 ms/step: more tokens/s
-    assert '/' in cells[5] and '%' in cells[5]
+    assert '/' in cells[6] and '%' in cells[6]                              # cells[5] is the AOI Δ tokens/s
     assert 'undefined (D1)' in next(l for l in text.splitlines() if l.startswith('| A3 '))
 
 def test_primary_table_uses_fallback_for_runs_that_never_cross(tmp_path):
@@ -134,3 +134,14 @@ def test_primary_table_uses_fallback_for_runs_that_never_cross(tmp_path):
     row = next(l for l in tables.build(str(tmp_path), str(tmp_path / 't.md')).splitlines() if l.startswith('| A7 '))
     cell = [c.strip() for c in row.strip('|').split('|')][2]
     assert cell.startswith('+') and '[extrap. 0/3 base, 3/3 arm]' in cell
+
+def test_primary_table_reports_arms_without_learning_runs_as_throughput_only(tmp_path):
+    import tables
+    for k in range(3):
+        write_full_run(tmp_path, 'fp_r11', k, 'lab', c=200.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'fp_r11', 'vast-h100', 't1'), 'run', 0, 'vast-h100', c=200.0, timing_ms=100.0)
+    write_full_run(os.path.join(tmp_path, 'throughput', 'aoi_A1b', 'vast-h100', 't1'), 'run', 0, 'vast-h100', c=200.0, timing_ms=125.0)
+    text = tables.build(str(tmp_path), str(tmp_path / 't.md'))
+    cells = [c.strip() for c in next(l for l in text.splitlines() if l.startswith('| A1b ')).strip('|').split('|')]
+    assert cells[3] == 'not run' and cells[5].startswith('-')                 # no steps; 125 vs 100 ms/step: fewer tokens/s
+    assert 'not run' not in next(l for l in text.splitlines() if l.startswith('| A8 '))   # ctrl arms have no aoi/loo config

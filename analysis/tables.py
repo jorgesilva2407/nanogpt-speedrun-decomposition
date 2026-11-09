@@ -61,12 +61,14 @@ def build(results_root, out_path):
     matrix = json.load(open(os.path.join(HERE, 'experiments', 'matrix.json')))
     undefined = {o['arm'] for o in matrix['open_decisions']}
     resolved = set(study['rq3b'].get('resolved_arms') or [])
+    configs = {c['exp_id'] for c in matrix['configurations']}
     g = group(load_runs(results_root))
     tok = 524288
     rows = ['| arm | registered prediction (provenance) | Δ steps LOO (r18 → −arm) | Δ steps AOI (r11 → +arm) | '
-            'Δ tokens/s LOO | wall-clock split LOO (sample-eff / throughput / cross) | LOO−AOI gap (upper bound on interaction) |'
+            'Δ tokens/s LOO | Δ tokens/s AOI | wall-clock split LOO (sample-eff / throughput / cross) | '
+            'LOO−AOI gap (upper bound on interaction) |'
             + (' RQ3a Δ steps @3.40/3.35/3.30 |' if resolved else ''),
-            '|---|---|---|---|---|---|---|' + ('---|' if resolved else '')]
+            '|---|---|---|---|---|---|---|---|' + ('---|' if resolved else '')]
     for a in arms:
         p = preds.get(a.get('prediction_ref'), {})
         pred = f"{p.get('registered_prediction', '?')} ({p.get('basis', '?')})"
@@ -76,6 +78,9 @@ def build(results_root, out_path):
         d_aoi = delta_ci(per_seed_steps(fp11), per_seed_steps(aoi)) if fp11 and aoi else None
         if aoi and fp11:
             same_host(fp11, aoi)
+        # an arm whose configuration is in the matrix but has no completed run is 'not run' (throughput-only arms)
+        t0, t1 = (throughput_tokens_per_s(results_root, e, study['throughput']['host'], tok) for e in ('fp_r11', f"aoi_{a['id']}"))
+        tps_aoi_cell = f'{t1[0] - t0[0]:+.0f}' if t0[0] and t1[0] else 'n/a'
         if loo is None:
             loo_cell, split_cell, tps_cell, gap_cell = 'undefined (D1)', 'n/a', 'n/a', 'n/a'
         else:
@@ -83,12 +88,14 @@ def build(results_root, out_path):
             if fp18 and loo:
                 host = same_host(fp18, loo)
             loo_cell = fmt(d_loo) + (extrap_note(fp18, loo) if d_loo else '')
+            if not loo and f"loo_{a['id']}" in configs:
+                loo_cell = 'not run'
             split_cell = tps_cell = 'n/a'
-            if fp18 and loo and d_loo and d_loo['delta'] is not None:
-                t0 = throughput_tokens_per_s(results_root, 'fp_r18', study['throughput']['host'], tok)
-                t1 = throughput_tokens_per_s(results_root, f"loo_{a['id']}", study['throughput']['host'], tok)
-                if t0[0] and t1[0]:
-                    tps_cell = f'{t1[0] - t0[0]:+.0f}'
+            t0 = throughput_tokens_per_s(results_root, 'fp_r18', study['throughput']['host'], tok)
+            t1 = throughput_tokens_per_s(results_root, f"loo_{a['id']}", study['throughput']['host'], tok)
+            if t0[0] and t1[0]:
+                tps_cell = f'{t1[0] - t0[0]:+.0f}'          # throughput needs no learning run (throughput-only arms)
+                if fp18 and loo and d_loo and d_loo['delta'] is not None:
                     S0 = np.mean([x for x in per_seed_steps(fp18) if x is not None])
                     dec = decompose(S0, t0[1], S0 + d_loo['delta'], t1[1])
                     split_cell = (f"{dec['sample_efficiency_fraction']:.0%} / {dec['throughput_fraction']:.0%} / "
@@ -108,11 +115,16 @@ def build(results_root, out_path):
             else:
                 rq3 = ' (not resolved in RQ1) |'
         aoi_cell = fmt(d_aoi) + (extrap_note(fp11, aoi) if d_aoi else '')
-        rows.append(f"| {a['id']} {a['name']} | {pred} | {loo_cell} | {aoi_cell} | {tps_cell} | {split_cell} | {gap_cell} |" + rq3)
+        if not aoi and f"aoi_{a['id']}" in configs:
+            aoi_cell = 'not run'
+        rows.append(f"| {a['id']} {a['name']} | {pred} | {loo_cell} | {aoi_cell} | {tps_cell} | {tps_aoi_cell} | {split_cell} | "
+                    f"{gap_cell} |" + rq3)
     text = '\n'.join(rows) + '\n\nΔ steps: interpolated crossing of 3.28 on full-validation points; intervals are 95% Welch t ' \
            'intervals across seeds. A run that never crosses 3.28 counts as budget step + step-equivalent shortfall ' \
            '(loss at budget − 3.28) / local slope, the persistence.py fallback; [extrap. k/n] says how many seeds of the ' \
-           'baseline and the arm that is. No p-values are reported.\n'
+           'baseline and the arm that is. "not run" = the configuration is in the matrix but has no completed learning run ' \
+           '(P2/P3, see DEVIATIONS.md); such arms are throughput-only, and their Δ tokens/s columns still apply. ' \
+           'No p-values are reported.\n'
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     open(out_path, 'w').write(text)
     return text

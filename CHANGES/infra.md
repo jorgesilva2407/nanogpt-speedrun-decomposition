@@ -175,6 +175,15 @@ crosses now counts as budget step + step-equivalent shortfall, (loss at budget �
 seeds of the baseline and of the arm are extrapolated (`[extrap. k/n base, k/n arm]`). Test:
 `analysis/tests/test_analysis.py: test_primary_table_uses_fallback_for_runs_that_never_cross`.
 
+## analysis: arms without learning runs are throughput-only in the primary table (2026-11-09)
+
+Analysis only; no run, configuration or trainer change. The P2 arms (A1b, A4, A5) and P3 (A5b) were not run (see
+`DEVIATIONS.md`), so they have throughput but no learning curves. `analysis/tables.py` now (a) shows `not run` in a steps
+column when the configuration is in the matrix but has no completed run, instead of `n/a`; (b) adds a `Δ tokens/s AOI`
+column (r11 → +arm, same session and host as the leave-one-out column); (c) computes both throughput columns whenever the
+throughput runs exist, not only when a steps estimate does. Wall-clock splits stay `n/a` for such arms: they need steps.
+Test: `analysis/tests/test_analysis.py: test_primary_table_reports_arms_without_learning_runs_as_throughput_only`.
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:
