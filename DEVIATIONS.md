@@ -34,8 +34,11 @@ fixed-point wall time came out at 0.90 (fp_r11) and 0.94 (fp_r18), both ≤ 1.0,
 
 **2.1 Seeds: 1–2 instead of 3 (D7).** The credit available covered the fixed points, one seed of P1, and a second seed of
 five configurations. Consequences: the detectable effects of the proposal's table (σ = 0.0013) do not apply. Our `fp_r11`
-seed SD is 0.0042, about 3× that value, so one- and two-seed arms resolve only large effects (roughly ±134 steps for one r11
-run and ±36 for one r18 run against the three-seed baselines, *estimate*, 1.96·SD·√(1+1/3) from the baseline SDs of 59 and 16 steps). Arms with one seed get point estimates with no interval.
+seed SD is 0.0042, about 3× that value, so one- and two-seed arms resolve only large effects. For one seed against the three-seed baseline the 95% half-width is about
+±170 steps on r11 and ±35 on r18 (*estimate*: t interval with the SD pooled over every configuration of that preset, 59 and 13
+steps, 6 and 7 degrees of freedom; two seeds give ±132 and ±27). With the baseline's three seeds alone the intervals would be
+±293 and ±79, and a z interval, which ignores that the SD is estimated, would give ±142 and ±38: an earlier version of this
+note quoted the optimistic ±134/±36. Arms with one seed get point estimates with no interval of their own.
 
 **2.2 P2 and P3 learning runs not run (D13).** A1b, A4, A5 (P2) and A5b (P3) have throughput but no learning run. D13 allowed
 P2 at the measured r, but not within the credit. **These four arms are reported as throughput-only:** the table shows
@@ -75,8 +78,15 @@ loss at step 950, so AdamW needs at least 1,390 / 950 = 1.46× the steps. AdamW 
 (D7), so this is an upper bound on Muon's advantage. A step count to 3.28 would be an extrapolation far past the data, so A8 is
 reported as the loss gap at the budget and the step-ratio lower bound. The A8 row of the table is not yet filled in.
 
-**3.4 Throughput.** One run per configuration in one session, so there is no estimate of its noise; step-time differences
-below about 2% are not interpreted. Wall-clock split fractions misbehave when steps and step time move in opposite directions
+**3.4 Throughput.** Each throughput run is one run (seed 0) of 300 steps, 290 after warm-up, so a throughput run has no
+replicate of its own. Two other sources bound its noise on the H100. (a) Every learning run of the main sweep also logged the
+time of every step, so most configurations have 2–3 independent runs on one machine: the seed-to-seed SD of the mean step time
+is 0.16% (median over configurations; maximum 1.1%). (b) The main sweep and the throughput sweep ran on two different H100
+machines, and the dense configurations (no window warm-up) differ by 0.5–1.9% between them, so step-time differences below
+about 2% between arms measured on different machines are not interpreted. A throughput run covers only the first 300 steps,
+so for configurations with window warm-up it understates the full-run step time: the r18-based configurations are 7–9% slower
+over their whole training run (`fp_r18` 1,131 ms against 1,040 ms). The A100 sweep has no replicates and no second machine, so
+its large effects have no interval. Wall-clock split fractions misbehave when steps and step time move in opposite directions
 (A6b shows −74% / 174%); report signed amounts there.
 
 ## 4. Not run
@@ -104,6 +114,17 @@ descriptively from the logged curves of the arms that look resolved. Resume-from
 D6's dates; the README and `study.yaml` comments naming the lab A100 as the throughput host; `study.yaml` seeds (3 default).
 Left as written, to be revised deliberately.
 
-## 7. Any further data
+## 7. Lab A100
 
-Anything run on another GPU model (for example the lab A100) is a separate host class (D9) and is never pooled with `vast-h100`.
+The lab A100 (80GB PCIe, host label `lab-a100`) fills only the gaps the H100 sweep left in RQ1 and RQ2 (learning runs for A1b, A4,
+A5, A5b and the A5b pair) and, last and smallest, the add-one-in side of RQ3b, under `lab_a100/PROTOCOL.md` (written before any A100
+learning run; driver `lab_a100/run.sh`; results in the separate HF dataset `speedrun-results-a100`; configurations from the tag
+`a100-v1`). Its Δ are used next to the H100's, with the H100 throughput, only if the `anchor` phase of the protocol passes. That
+deviates from D9/D10 and is declared as a limitation in the report and the presentation (disclaimer text in the protocol); no H100
+experiment is repeated and the H100 measurements are not strengthened.
+
+A first sweep of the 21 throughput configurations on the A100 (13.3 h, one run each) was a compile-and-behaviour check, not a result
+of the study. All 21 compile and run, peak memory matches the H100's within about 48 MiB, dense configurations run at 2.7–2.9× the
+H100 step time, and the attention-window, long-context and block-mask configurations at 3.1–16.8× (`loo_A2` 12.2 s per step,
+`aoi_A4b` 21.0 s; `aoi_A4b` and `aoi_A5` also warmed up for 68 and 111 min). The step-time effect of A1a, A1b, A2, A4b, A5 and A6b
+differs in size, and for A6b in sign, from the H100's. A100 throughput is not reported.

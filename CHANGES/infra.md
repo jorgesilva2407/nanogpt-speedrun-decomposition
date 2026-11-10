@@ -184,6 +184,21 @@ column (r11 → +arm, same session and host as the leave-one-out column); (c) co
 throughput runs exist, not only when a steps estimate does. Wall-clock splits stay `n/a` for such arms: they need steps.
 Test: `analysis/tests/test_analysis.py: test_primary_table_reports_arms_without_learning_runs_as_throughput_only`.
 
+## lab A100: separate driver and protocol; RQ3b configurations (2026-11-10)
+
+New directory `lab_a100/` with `run.sh` and `PROTOCOL.md`. `run.sh` runs the fixed job list of the A100 protocol (phases `anchor`, `gaps`,
+`rq2`, `seeds2`, `rq3b`; default `all`, 24 runs) from one invocation inside the study image and uploads each finished run to its own
+`RESULTS_REPO`, with `cloud_worker.sh`'s contract (skip runs already uploaded, restart incomplete ones from step 0, halt after 2
+consecutive failures, `DRY_RUN=1`), plus upload retries and a compile cache in the mounted work directory. It shares nothing with the H100
+tooling except `launch/run_one.py` and the trainer: `launch/` is not touched. The reason for a separate script: no `cloud_worker.sh`
+tier selects an arbitrary list of (configuration, seed), and the lab's results must go to their own dataset (the names would collide).
+
+`experiments/study.yaml: rq3b.resolved_arms` is filled with `[A2, A3, A4b, A6, A7]` (RQ3 "runs only on arms resolved in RQ1"; the
+arms with an effect beyond seed noise in the H100 sweep) and `experiments/matrix.py` regenerated: 22 configurations `rq3b_s0.5_*` and
+`rq3b_s0.75_*` (the two fixed points and both directions of the resolved arms, scaled budgets), added to `experiments/runs/` and
+`matrix.json`. The 21 existing configurations, their config hashes and the throughput job list are unchanged. They live on the new tag
+`a100-v1`; `study-freeze` and the trainer are unchanged. Only 6 of the 22 are scheduled (`fp_r11`, `aoi_A6`, `aoi_A3` at both scales, one seed).
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:
