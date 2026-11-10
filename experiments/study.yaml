@@ -10,7 +10,7 @@ adamw_lr_sweep:              # arm A8 (positive control): AdamW LR sweep, propos
   bases: []                   # D7 (2026-11-04): no AdamW LR sweep; A8 read as an upper bound
 rq3b:
   budget_scales: [0.5, 0.75] # num_iterations multipliers; absolute-step hparams are rescaled with it (listed per config)
-  resolved_arms: []          # RQ3 runs only on arms resolved in RQ1 (proposal 5.1); filled after RQ1
+  resolved_arms: [A2, A3, A4b, A6, A7]   # RQ3 runs only on arms resolved in RQ1 (proposal 5.1); filled 2026-11-10 from the H100 sweep (A2 and A7 leave-one-out, A3, A4b and A6 add-one-in beyond seed noise)
   absolute_step_hparams: [warmdown_iters, warmup_iters, muon_momentum_warmup_steps]
 validation:
   mode: v8                   # v8 (val every 125, every 25 in the final third, full set) | subset20 (every 5 in the

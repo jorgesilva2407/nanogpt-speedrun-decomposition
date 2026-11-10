@@ -24,7 +24,13 @@
     0.5,
     0.75
    ],
-   "resolved_arms": [],
+   "resolved_arms": [
+    "A2",
+    "A3",
+    "A4b",
+    "A6",
+    "A7"
+   ],
    "absolute_step_hparams": [
     "warmdown_iters",
     "warmup_iters",
@@ -392,6 +398,358 @@
    "config_hash": "0219dc2b097043428788596e93bf204e5433d1e357777631bf082188f7b0005d",
    "prerequisites_added": [],
    "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_fp_r11",
+   "family": "rq3b",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "378a78e0ddbcdb0402ccaebd2d68a708d513c53b6c970595c26b15c69514014f",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_fp_r18",
+   "family": "rq3b",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "3c6849dfd9af58ea60293b3c94dc4fb1d5f4702f1acbe183d79e95368397b5c2",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.5_aoi_A2",
+   "family": "rq3b",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "7fe617abddb8c2181ae07d568b9d073d32dae9afc0979219b8e7fadc890c0d34",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "window_warmup"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_loo_A2",
+   "family": "rq3b",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "4b5637b5ae12abf114df9fae9b040fb9d256b0cbea4cbdda50a1b96bd3518a39",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.5_aoi_A3",
+   "family": "rq3b",
+   "arm": "A3",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "b30a41f1bf756cf1ea81aa0b99f21aa7f604cdcb85d46847719f4e7700ba6a02",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_aoi_A4b",
+   "family": "rq3b",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "65c358435130de58ddc49ea34a33ab3dc0c32ded4b9867e1e2d5e4bfece6011c",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "blockmask_manual"
+    },
+    {
+     "flag": "long_context",
+     "arm": "A1b",
+     "required_by": "blockmask_manual"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_loo_A4b",
+   "family": "rq3b",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "25635f4eed7acd4e901a6b2d063c78e2efecb197c430001ab9d7080861456ebf",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.5_aoi_A6",
+   "family": "rq3b",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "83a53025f7a7dd359083dd3fac9f4efc4ac3686a1db9206dd6aa09bdef145d8b",
+   "prerequisites_added": [
+    {
+     "flag": "ve_split",
+     "arm": "A5",
+     "required_by": "ve_sparsify"
+    },
+    {
+     "flag": "ve_unet",
+     "arm": "A4",
+     "required_by": "ve_split"
+    },
+    {
+     "flag": "value_embeds",
+     "arm": "A3",
+     "required_by": "ve_unet"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_loo_A6",
+   "family": "rq3b",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "2d8890d5d949a2353371ca32b3cba0f277164ef45c8ad6223dfcbd433842bd57",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.5_aoi_A7",
+   "family": "rq3b",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "5c01b355ca7e2902176e00dd524d08890a8aed40b72fb1f6f5050c251fcbc6a3",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.5_loo_A7",
+   "family": "rq3b",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "0a8c131a6de5fb379867997c00e81d3274ff41af24705ea34514c2234b250303",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.75_fp_r11",
+   "family": "rq3b",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "a7538c71c6ca9f0d532580a2d308c03f271edba8342e4127d29b91e5eb5fd425",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_fp_r18",
+   "family": "rq3b",
+   "arm": null,
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "48f0f449b4cd0318e587741b22bcfc81e0b9a9c5dfbecc972b97f86a3ed8b64d",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.75_aoi_A2",
+   "family": "rq3b",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "12de881dbeb9719488aadcfe1159a8e88b6cc3e44ec5d226536c863f6f2de400",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "window_warmup"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_loo_A2",
+   "family": "rq3b",
+   "arm": "A2",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "08b38981eecdd67aa2ffcef7e21c5367410dc9f236674459ff9b94e586ac9474",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.75_aoi_A3",
+   "family": "rq3b",
+   "arm": "A3",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "4214a2861f98f8af0df039bcb3af3322c8eb6fa01c00cf3caefef170ee8add44",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_aoi_A4b",
+   "family": "rq3b",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "d80393c6bb04436eb0557001cb47aa36ba09373e25033b7a69acf3c153235930",
+   "prerequisites_added": [
+    {
+     "flag": "flex_kernel",
+     "arm": "A1a",
+     "required_by": "blockmask_manual"
+    },
+    {
+     "flag": "long_context",
+     "arm": "A1b",
+     "required_by": "blockmask_manual"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_loo_A4b",
+   "family": "rq3b",
+   "arm": "A4b",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "cfe6557650ad17be9a6301822ced9ff21f1668e30c385bd7521ec2ce27ef621c",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.75_aoi_A6",
+   "family": "rq3b",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "946683a6feb6fd4fe9214302e3851eb6685aa999cd436bccb5d9e2e7e893734f",
+   "prerequisites_added": [
+    {
+     "flag": "ve_split",
+     "arm": "A5",
+     "required_by": "ve_sparsify"
+    },
+    {
+     "flag": "ve_unet",
+     "arm": "A4",
+     "required_by": "ve_split"
+    },
+    {
+     "flag": "value_embeds",
+     "arm": "A3",
+     "required_by": "ve_unet"
+    }
+   ],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_loo_A6",
+   "family": "rq3b",
+   "arm": "A6",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "ce55bd0c510b1295e171544e2a43bef63074955f790a73ed8df9433dba5a5b92",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
+  },
+  {
+   "exp_id": "rq3b_s0.75_aoi_A7",
+   "family": "rq3b",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "624a5e7c0a0d9fc81945c2988bc9c3132df894c128f5e459b1578a8b951d26e5",
+   "prerequisites_added": [],
+   "hparams_from": "r11"
+  },
+  {
+   "exp_id": "rq3b_s0.75_loo_A7",
+   "family": "rq3b",
+   "arm": "A7",
+   "seeds": [
+    0,
+    1,
+    2
+   ],
+   "config_hash": "9359679b9177e9ba0833b0cc3d9b4a15822f0c9ed58933e049ff9936d27dd3bb",
+   "prerequisites_added": [],
+   "hparams_from": "r18"
   }
  ],
  "open_decisions": [
