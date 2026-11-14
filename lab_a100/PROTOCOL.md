@@ -83,3 +83,10 @@ run in progress (it restarts from step 0, there is no resume), and restarting sk
 * The H100 side has 3 baseline seeds, so no amount of A100 data narrows the offset interval much below ±0.0076 (r11, 5 A100 seeds, estimate).
 * A100 step times are 2.8× the H100's on dense configurations and 6–17× on the windowed and long-context ones; `aoi_A5` also compiles for
   about 2 h. This affects when results are ready, not what they mean.
+
+## 8. Result (added 2026-11-14, after all 24 runs finished; sections 1 to 7 are unchanged)
+
+All five phases ran from one `docker run` on one A100; systemd reloads on the host cut the container's GPU access twice and a watcher loop restarted it (the log is `~/a100-lab/worker-all.log` on the lab machine); all 24 runs finished their full schedule and are in the HF dataset. **The pass rule of section 3 passed**
+(`analysis/transfer.py`, full table in `reports/table.md`): offset +0.0002 ± 0.0093 inside ±0.010; largest curve gap 0.0012; A100 SD 0.0040;
+bridge `aoi_A6` −218 against −219 steps (difference +1 ± 128), `aoi_A3` −246 against −247. Secondary: seed-paired offsets +0.0009, +0.0000,
+−0.0003; `fp_r18` offset −0.0005 ± 0.0069. So the new arms' Δ are reported with the H100 arms, flagged `[A100]`, with the disclaimer of section 6.

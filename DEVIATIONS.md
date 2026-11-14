@@ -1,6 +1,6 @@
 # DEVIATIONS.md — what was executed, and where it differs from the pre-registered plan
 
-Written 2026-11-09, after the sweep stopped. This is a record, not a decision: it has no D-number and changes nothing
+Written 2026-11-09, after the H100 sweep stopped; sections 1, 2.2, 3.1, 3.3, 3.4, 4 and 7 updated 2026-11-14 after the lab A100 finished. This is a record, not a decision: it has no D-number and changes nothing
 in `OPEN_DECISIONS.md` or `prereg/predictions.yaml`. "Plan" means `OPEN_DECISIONS.md` D1–D13, `experiments/study.yaml` and
 the README. Numbers are measured unless marked *estimate*.
 
@@ -10,7 +10,7 @@ All runs: H100 SXM 80GB (D9), host class `vast-h100` (D10), commit `3706f29` (`s
 
 | | planned | executed |
 |---|---|---|
-| learning-curve runs (D2: 21 configurations × 3 seeds) | 63 | **28** |
+| learning-curve runs (D2: 21 configurations × 3 seeds) | 63 | **28** on the H100, **+ 24** on the lab A100 (below, section 7) |
 | throughput runs (D11: 21 jobs, one session) | 21 | **21** |
 | spend (Vast charge records) | — | $78.59 |
 
@@ -26,6 +26,10 @@ Seeds executed per configuration (plan: 3 each):
 | P2 | `aoi_A1b`, `aoi_A4`, `aoi_A5` | **0** each |
 | P3 | `aoi_A5b`, `loo_A5b` | **0** each |
 
+Lab A100, a separate dataset (`speedrun-decomp/speedrun-results-a100`, tag `a100-v1`, host label `lab-a100`, 24 runs; only the transfer anchors
+`fp_r11`, `fp_r18`, `aoi_A6` and `aoi_A3` repeat H100 configurations, to test whether Δ transfers, and are never pooled with the H100 runs): `fp_r11` ×3, `fp_r18` ×2, `aoi_A6` ×2, `aoi_A3` ×1 (the transfer check); `aoi_A1b`, `aoi_A4`, `aoi_A5`,
+`aoi_A5b` and `loo_A5b` ×2 each (the gaps of RQ1 and RQ2); `rq3b_s0.5_*` and `rq3b_s0.75_*` of `fp_r11`, `aoi_A6`, `aoi_A3` ×1 each (RQ3b).
+
 Fixed-point pass (D12): both passed (fp_r11: mean 3.2759 vs record 3.2753, SD 0.0042; fp_r18: 3.2802 vs 3.2791, SD 0.0015;
 largest gap to the record curve in the final third 0.0017 and 0.0030, trigger 0.01). D13's ratio r = measured / estimated
 fixed-point wall time came out at 0.90 (fp_r11) and 0.94 (fp_r18), both ≤ 1.0, which allows P1 + P2 subject to the budget clause.
@@ -40,11 +44,13 @@ steps, 6 and 7 degrees of freedom; two seeds give ±132 and ±27). With the base
 ±293 and ±79, and a z interval, which ignores that the SD is estimated, would give ±142 and ±38: an earlier version of this
 note quoted the optimistic ±134/±36. Arms with one seed get point estimates with no interval of their own.
 
-**2.2 P2 and P3 learning runs not run (D13).** A1b, A4, A5 (P2) and A5b (P3) have throughput but no learning run. D13 allowed
-P2 at the measured r, but not within the credit. **These four arms are reported as throughput-only:** the table shows
-"not run" in the steps columns and still reports Δ tokens/s. RQ1's decomposition is therefore defined for 7 of 11 arms
-(A1a, A2, A3, A4b, A6, A6b, A7). What is lost besides that: the middle rungs (A4, A5) of the value-embedding ladder, so the
-ladder's cumulative gain (`aoi_A6`) cannot be split by rung; and the context-only effect inside `aoi_A4b` (see 3.1).
+**2.2 P2 and P3 learning runs not run on the H100 (D13); run on the lab A100 instead.** A1b, A4, A5 (P2) and A5b (P3) have H100
+throughput but no H100 learning run. D13 allowed P2 at the measured r, but not within the credit. On the H100 alone RQ1's
+decomposition is defined for 7 of 11 arms (A1a, A2, A3, A4b, A6, A6b, A7) and these four arms are throughput-only. The lab A100
+(section 7) then measured them, two seeds each, against its own baseline: their Δ steps are marked `[A100]` in the table, and
+their wall-clock split combines the A100 Δ steps with the H100 throughput, shown only because the transfer check passed. The
+middle rungs (A4, A5) of the value-embedding ladder are therefore available; the ladder's rungs are bundles, so read them with 3.1.
+Still not run: the context-only effect inside `aoi_A4b` (`A1b.ctx`, 3.1).
 
 **2.3 `ctrl_A8_r11` not run.** This is D13's pre-registered first cut, so it follows the plan. The positive control is
 `ctrl_A8_r18` only (one seed).
@@ -65,7 +71,11 @@ switches on `flex_kernel` and `long_context` (without `doc_masking`); `aoi_A6` s
 (`value_embeds`, `ve_unet`, `ve_split`, `ve_sparsify`, `rope_half_truncate`). The matching leave-one-out removes only the arm's own
 flags. So the A4b and A6 add-one-in numbers measure a bundle, and their gap to leave-one-out mixes interaction with the
 bundle. Not run: A1b's context-only sub-arm (`A1b.ctx`), which would isolate the long-context part of `aoi_A4b`.
-The cleanest order-dependence pairs are A2, A6b and A7 (A7 is a hyperparameter change only).
+The cleanest order-dependence pairs are A2, A6b, A7 (A7 is a hyperparameter change only) and, on the A100, A5b (`code_opts_16` alone
+in both directions). The A100 add-one-in arms are bundles too: `aoi_A1b` = `flex_kernel` + `long_context` + `doc_masking`;
+`aoi_A4` = `value_embeds` + `ve_unet` + `ve_lambdas2`; `aoi_A5` = the A4 bundle + `ve_split` + `flex_kernel` + `long_context` +
+`block_window` + `blockmask_separate` (no `doc_masking`), which is why A5 is not a step up from A6 on the same axis (A6 has the
+ladder but no flex kernel or long context).
 
 **3.2 Runs that never reach 3.28.** 12 of the 28 runs end above 3.28: 2 of 3 `fp_r18` seeds, 1 of 3 `fp_r11`, 7 of 10
 leave-one-out runs (`loo_A2` 2/2, `loo_A6` 2/2, `loo_A7` 2/2, `loo_A4b` 1/2, `loo_A6b` 0/2), `aoi_A6b` 1/2 and
@@ -73,10 +83,12 @@ leave-one-out runs (`loo_A2` 2/2, `loo_A6` 2/2, `loo_A7` 2/2, `loo_A4b` 1/2, `lo
 fallback (commit 550ba45; before it, such runs were silently dropped). Each cell reports how many seeds are extrapolated. The
 **final loss at the budget needs no extrapolation** and should be quoted next to every step count.
 
-**3.3 A8 (positive control).** AdamW ends at 3.4624 against 3.2785 for Muon (fp_r18 seed 1) and Muon reaches AdamW's final
-loss at step 950, so AdamW needs at least 1,390 / 950 = 1.46× the steps. AdamW runs at the borrowed lr 0.0018 with no LR sweep
-(D7), so this is an upper bound on Muon's advantage. A step count to 3.28 would be an extrapolation far past the data, so A8 is
-reported as the loss gap at the budget and the step-ratio lower bound. The A8 row of the table is not yet filled in.
+**3.3 A8 (positive control).** AdamW ends at 3.4624 against 3.2802 for Muon (fp_r18, mean of 3 seeds) and Muon reaches AdamW's final
+loss at step 897 (interpolated; 896, 895 and 899 for the three seeds), so AdamW needs at least 1,390 / 897 = 1.55× the steps. AdamW
+runs at the borrowed lr 0.0018 with no LR sweep (D7), so this is an upper bound on Muon's advantage. A step count to 3.28 would be
+an extrapolation far past the data, so A8 is reported as the loss gap at the budget and the step-ratio lower bound; the table
+row is filled in. (An earlier version of this note said step 950 and 1.46×; that was the first validation point at or below the loss
+(the grid, 950 for all three seeds), not the interpolated crossing.)
 
 **3.4 Throughput.** Each throughput run is one run (seed 0) of 300 steps, 290 after warm-up, so a throughput run has no
 replicate of its own. Two other sources bound its noise on the H100. (a) Every learning run of the main sweep also logged the
@@ -85,14 +97,16 @@ is 0.16% (median over configurations; maximum 1.1%). (b) The main sweep and the 
 machines, and the dense configurations (no window warm-up) differ by 0.5–1.9% between them, so step-time differences below
 about 2% between arms measured on different machines are not interpreted. A throughput run covers only the first 300 steps,
 so for configurations with window warm-up it understates the full-run step time: the r18-based configurations are 7–9% slower
-over their whole training run (`fp_r18` 1,131 ms against 1,040 ms). The A100 sweep has no replicates and no second machine, so
-its large effects have no interval. Wall-clock split fractions misbehave when steps and step time move in opposite directions
+over their whole training run (`fp_r18` 1,131 ms against 1,040 ms; the table output of `analysis/tables.py` now lists the whole-run
+step time of every H100 learning configuration next to its 300-step throughput run, separately from the throughput columns). The A100
+throughput sweep has no replicates and no second machine and is not reported. Wall-clock split fractions misbehave when steps and step time move in opposite directions
 (A6b shows −74% / 174%); report signed amounts there.
 
 ## 4. Not run
 
-RQ3b (reruns of resolved arms at 0.5× and 0.75× of the step budget); `rq3b.resolved_arms` is still empty, so RQ3a is read
-descriptively from the logged curves of the arms that look resolved. Resume-from-checkpoint was assessed and not built.
+RQ3b on the H100 and RQ3b's leave-one-out side everywhere. `rq3b.resolved_arms` was filled (A2, A3, A4b, A6, A7) after the H100 sweep, but
+only the add-one-in side of A3 and A6 was run, on the A100, one seed each, at 0.5× and 0.75× (section 7); A2, A4b and A7 were not
+rerun. RQ3a is read from the logged curves. Resume-from-checkpoint was assessed and not built.
 
 ## 5. Infrastructure that differs from the plan
 
@@ -122,6 +136,21 @@ learning run; driver `lab_a100/run.sh`; results in the separate HF dataset `spee
 `a100-v1`). Its Δ are used next to the H100's, with the H100 throughput, only if the `anchor` phase of the protocol passes. That
 deviates from D9/D10 and is declared as a limitation in the report and the presentation (disclaimer text in the protocol); no H100
 experiment is repeated and the H100 measurements are not strengthened.
+
+**Transfer check (PROTOCOL.md section 3, evaluated by `analysis/transfer.py`; numbers in `reports/table.md`).** It passed: the `fp_r11`
+final-loss offset A100 − H100 is +0.0002 ± 0.0093 (3 against 3 seeds; limit ±0.010), the largest gap between the mean curves at the
+final-third checkpoints 0.0012 (limit 0.01), the A100 seed SD 0.0040 (H100 0.0042; range [0.0002, 0.0057]); the bridge `aoi_A6` has Δ
+−218 steps on the A100 against −219 on the H100 (difference +1 ± 128) and `aoi_A3` −246 against −247. Seed by seed the A100 and
+H100 final losses of `fp_r11` differ by +0.0009, +0.0000, −0.0003, and the `fp_r18` offset (FlexAttention path, 2 against 3 seeds) is
+−0.0005 ± 0.0069. The interval of the offset is wide, ±0.0093 of the ±0.010 allowed: the check shows no offset beyond about a
+hundredth of a loss unit, not that there is none. The A100 Δ are therefore combined with the H100 throughput and reported next to
+the H100 arms, flagged `[A100]`.
+
+What the A100 arms resolve (95% half-widths in the table, two seeds each, Welch t): A1b ±116 steps, A4 ±145, A5 ±129, A5b add-one-in
+±240 (one of its two seeds never crosses 3.28 and one of the baseline's never does, which widens it), `loo_A5b` ±94. Their Δ steps are
+−489 (A1b), −221 (A4), −565 (A5), +17 (A5b add-one-in) and −5 (`loo_A5b`): A1b and A5 are resolved, A4 only just, and the A5b pair
+is within the noise of zero in both directions (it was registered as throughput-dominant). The RQ3b points are single runs with no
+interval, a difference of two single runs having an SD of about 0.006 loss (fp_r11 seed SD 0.0042).
 
 A first sweep of the 21 throughput configurations on the A100 (13.3 h, one run each) was a compile-and-behaviour check, not a result
 of the study. All 21 compile and run, peak memory matches the H100's within about 48 MiB, dense configurations run at 2.7–2.9× the

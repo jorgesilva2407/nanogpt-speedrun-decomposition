@@ -145,3 +145,60 @@ def test_primary_table_reports_arms_without_learning_runs_as_throughput_only(tmp
     cells = [c.strip() for c in next(l for l in text.splitlines() if l.startswith('| A1b ')).strip('|').split('|')]
     assert cells[3] == 'not run' and cells[5].startswith('-')                 # no steps; 125 vs 100 ms/step: fewer tokens/s
     assert 'not run' not in next(l for l in text.splitlines() if l.startswith('| A8 '))   # ctrl arms have no aoi/loo config
+
+# ---------------------------------------------------------------- the A100 dataset: separate root, own baselines, transfer gate
+def populate_hosts(h_root, a_root, a100_offset=0.0):
+    """Both roots hold fp_r11 and the bridge arms (the real datasets share these names, so they must never be pooled)."""
+    for k in range(3):
+        write_full_run(h_root, 'fp_r11', k, 'vast-h100', c=200.0)
+        write_full_run(a_root, 'fp_r11', k, 'lab-a100', c=200.0, a=3.20 + a100_offset)
+    for k in range(2):
+        write_full_run(h_root, 'aoi_A6', k, 'vast-h100', c=170.0)
+        write_full_run(a_root, 'aoi_A6', k, 'lab-a100', c=170.0, a=3.20 + a100_offset)
+    write_full_run(h_root, 'aoi_A3', 0, 'vast-h100', c=170.0)
+    write_full_run(a_root, 'aoi_A3', 0, 'lab-a100', c=170.0, a=3.20 + a100_offset)
+    for root, host in ((h_root, 'vast-h100'),):       # throughput is the H100's: the split needs it
+        write_full_run(os.path.join(root, 'throughput', 'fp_r11', host, 't1'), 'run', 0, host, c=200.0, timing_ms=100.0)
+        write_full_run(os.path.join(root, 'throughput', 'aoi_A1b', host, 't1'), 'run', 0, host, c=200.0, timing_ms=125.0)
+
+def test_a100_arm_uses_its_own_baseline_and_both_hosts_load_separately(tmp_path):
+    import tables
+    h, a = str(tmp_path / 'h100'), str(tmp_path / 'a100')
+    populate_hosts(h, a)
+    for k in range(2):
+        write_full_run(a, 'aoi_A1b', k, 'lab-a100', c=150.0)
+    with pytest.raises(HostPoolingError):                     # pooling both roots into one grouping is refused
+        group(load_runs(h) + load_runs(a))
+    text = tables.build(h, str(tmp_path / 't.md'), a)
+    cells = [c.strip() for c in next(l for l in text.splitlines() if l.startswith('| A1b ')).strip('|').split('|')]
+    assert cells[3].startswith('-') and cells[3].endswith('[A100]')
+    assert cells[5].startswith('-')                           # H100 throughput: 125 vs 100 ms per step
+    assert '/' in cells[7] and '%' in cells[7]                # the split is shown because the transfer check passes
+    assert '| **result** | | all of the above | **pass** |' in text
+
+def test_a100_split_is_withheld_when_the_transfer_check_fails(tmp_path):
+    import tables
+    h, a = str(tmp_path / 'h100'), str(tmp_path / 'a100')
+    populate_hosts(h, a, a100_offset=0.03)                    # the A100 baseline sits 0.03 above the H100's
+    for k in range(2):
+        write_full_run(a, 'aoi_A1b', k, 'lab-a100', c=150.0, a=3.23)
+    text = tables.build(h, str(tmp_path / 't.md'), a)
+    cells = [c.strip() for c in next(l for l in text.splitlines() if l.startswith('| A1b ')).strip('|').split('|')]
+    assert cells[3].endswith('[A100]') and cells[7].startswith('unsupported')
+    assert '**FAIL**' in text
+
+def test_welch_combination_matches_hand_calculation():
+    from transfer import combo
+    est, hw = combo([[1.0, 3.0], [0.0, 2.0]], [1, -1])        # means 2 and 1; var terms 1 and 1; df = 2; t = 4.303
+    assert est == pytest.approx(1.0) and hw == pytest.approx(4.303 * 2 ** 0.5)
+    assert combo([[1.0], [0.0, 2.0]], [1, -1])[1] is None     # a single value has no interval
+
+def test_rq3b_table_pairs_seed_zero_at_every_scale(tmp_path):
+    import tables
+    a = str(tmp_path / 'a100')
+    for name, loss in (('fp_r11', 3.30), ('aoi_A3', 3.27), ('rq3b_s0.5_fp_r11', 3.40), ('rq3b_s0.5_aoi_A3', 3.37)):
+        write_full_run(a, name, 0, 'lab-a100', c=200.0, a=loss)
+    ga = group(load_runs(a))
+    text, deltas = tables.rq3b_table(ga)
+    assert set(deltas['aoi_A3']) == {0.5, 1.0} and deltas['aoi_A3'][0.5] == pytest.approx(deltas['aoi_A3'][1.0], abs=0.01)
+    assert 'not run' in text                                  # aoi_A6 has no runs in this toy dataset

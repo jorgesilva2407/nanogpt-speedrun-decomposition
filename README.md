@@ -20,6 +20,9 @@ the group's proposal (v8, kept outside this repository). References like "propos
 > **2026-11-04:** all open decisions are taken ([`OPEN_DECISIONS.md`](OPEN_DECISIONS.md)). The study runs entirely
 > on rented H100 SXM 80GB instances (`launch/make_jobs.py`, `launch/cloud_worker.sh`); the feasibility spike is
 > dropped and the fixed-point runs serve as the first runtime validation.
+> **2026-11-14:** the H100 sweep (28 learning runs, 21 throughput runs) and a lab-A100 complement (24 runs, a separate dataset,
+> fills the gaps of RQ1/RQ2 and part of RQ3b) are finished. What ran, what did not and where the study differs from the plan:
+> [`DEVIATIONS.md`](DEVIATIONS.md) (the A100 in section 7); the A100 protocol and its result: [`lab_a100/PROTOCOL.md`](lab_a100/PROTOCOL.md).
 
 ---
 
@@ -181,7 +184,9 @@ because switches that stay on in r18 depend on them. Choosing what "remove" mean
   ±46 / ±36 steps and RQ2 ±65 / ±51 steps, for 3 and 5 seeds. Those are z intervals; t intervals are wider and also
   reported.
 * **`tables.py`** builds the primary deliverable, one row per arm: registered prediction, Δ steps (LOO and AOI,
-  with 95% CI), Δ tokens/s, wall-clock split, and the LOO−AOI gap as an upper bound on interaction.
+  with 95% CI), Δ tokens/s, wall-clock split, and the LOO−AOI gap as an upper bound on interaction; with `--results-a100` it
+  also reads the A100 dataset (never merged with the H100 one) and adds the transfer check (`transfer.py`), the RQ3b table, the A8 row
+  and the whole-run step times.
 * **`load.py`** reads only completed runs and **refuses to pool runs from different hosts**.
 
 All of it is tested on synthetic curves.
@@ -271,7 +276,11 @@ seed 0 on lab-a100 and on rented-h100) is a named experiment, analysed separatel
 
 **5. Tables:**
 ```bash
-python -I analysis/tables.py               # -> reports/table.md
+python -I analysis/tables.py               # -> reports/table.md (H100 results in results/)
+# the finished study: both result datasets from Hugging Face, kept in separate directories
+hf download speedrun-decomp/speedrun-results      --repo-type dataset --local-dir results-h100 --exclude "*.pt"
+hf download speedrun-decomp/speedrun-results-a100 --repo-type dataset --local-dir results-a100 --exclude "*.pt"
+python -I analysis/tables.py --results results-h100 --results-a100 results-a100 --out reports/table.md
 python -I analysis/mde.py                  # MDEs (set sigma to the S2 measurement)
 ```
 

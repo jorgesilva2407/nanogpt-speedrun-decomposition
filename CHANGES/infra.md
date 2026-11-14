@@ -199,6 +199,18 @@ arms with an effect beyond seed noise in the H100 sweep) and `experiments/matrix
 `matrix.json`. The 21 existing configurations, their config hashes and the throughput job list are unchanged. They live on the new tag
 `a100-v1`; `study-freeze` and the trainer are unchanged. Only 6 of the 22 are scheduled (`fp_r11`, `aoi_A6`, `aoi_A3` at both scales, one seed).
 
+## analysis: A100 dataset, transfer check, RQ3b, A8 and whole-run timing in the table (2026-11-14)
+
+Analysis only; no run, configuration or trainer changes. `analysis/tables.py` takes `--results-a100` (the separate A100 dataset) and never
+merges the two roots (both hold `fp_r11` and `fp_r18`; `load.group` still refuses mixed hosts). Arms the H100 never ran (A1b, A4, A5, A5b
+add-one-in, A5b leave-one-out) are read from the A100 against the A100's own baselines and marked `[A100]`; throughput always comes from the H100
+root. New `analysis/transfer.py` evaluates PROTOCOL.md section 3 as written (offset, curve, seeding, bridge; paired offset and `fp_r18` offset
+as secondary) and gates the wall-clock split of the A100 arms on it. New columns/sections: add-one-in wall-clock split (arms without a
+leave-one-out had none), A8 row (loss gap and the step-ratio lower bound, 1.55× from interpolated crossings of 3 seeds, replacing the 950-step /
+1.46× grid reading in DEVIATIONS 3.3), RQ3b table (Δ final loss at 0.5×/0.75×/1.0×, seed 0 against seed 0), and the whole-run step time of the
+H100 learning runs next to the 300-step throughput run. The H100-only output is unchanged except the new column and the A8 row (checked cell by
+cell against the previous output). Tests: 18 (4 new: two-host loading, gate failure, Welch combination, RQ3b pairing).
+
 ## infra: run logging (Step 5; decided now because it cannot be added after the sweep)
 
 * `--out-dir DIR` writes, on the master process:
