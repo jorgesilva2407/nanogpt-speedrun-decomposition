@@ -1,5 +1,7 @@
 # Deferred runtime checks
 
+> **Historical note (2026-11-14).** The list below dates from the static build (2026-10-18) and has not been re-ticked. The trainer has since run on a GPU (28 + 24 learning runs and 21 throughput runs, `DEVIATIONS.md`); which individual items those runs exercised is not tracked here.
+
 Nothing in this repository has been executed with torch or on a GPU (by design: the build task forbids it).
 Every item below is **NOT RUN (by design)**. Each lists what would be run later and what would count as a pass.
 Static evidence that *was* produced is in `gates/rNN.txt` and `CHANGES/rNN.md`.

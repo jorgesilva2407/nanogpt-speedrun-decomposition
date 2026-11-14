@@ -14,15 +14,10 @@ behind an independent switch in **one trainer**, and builds everything needed to
 removed from the full record #18 configuration, and added alone to the record #11 configuration. The study design is
 the group's proposal (v8, kept outside this repository). References like "proposal §4" point to it.
 
-> **Status (2026-10-18).** The trainer, the replay of all eight records, the experiment matrix, the launch tooling
-> and the analysis code are written and **statically verified**. **Nothing has been executed with torch or on a
-> GPU yet.** Everything that still needs a GPU is listed in [`DEFERRED_RUNTIME_CHECKS.md`](DEFERRED_RUNTIME_CHECKS.md).
-> **2026-11-04:** all open decisions are taken ([`OPEN_DECISIONS.md`](OPEN_DECISIONS.md)). The study runs entirely
-> on rented H100 SXM 80GB instances (`launch/make_jobs.py`, `launch/cloud_worker.sh`); the feasibility spike is
-> dropped and the fixed-point runs serve as the first runtime validation.
-> **2026-11-14:** the H100 sweep (28 learning runs, 21 throughput runs) and a lab-A100 complement (24 runs, a separate dataset,
-> fills the gaps of RQ1/RQ2 and part of RQ3b) are finished. What ran, what did not and where the study differs from the plan:
-> [`DEVIATIONS.md`](DEVIATIONS.md) (the A100 in section 7); the A100 protocol and its result: [`lab_a100/PROTOCOL.md`](lab_a100/PROTOCOL.md).
+> **Status (2026-11-14): the study is finished.** The H100 sweep (28 learning runs, 21 throughput runs, US$ 78.59) and a lab-A100 complement
+> (24 learning runs, a separate dataset) have run; every number below comes from them. What was executed against the pre-registered plan,
+> and every deviation: [`DEVIATIONS.md`](DEVIATIONS.md). The final table: [`reports/table.md`](reports/table.md). The data behind it:
+> [`saved_results/`](saved_results). Reproduce it in one command (no GPU, no network): section **Reproducing the results**.
 
 ---
 
@@ -41,6 +36,28 @@ the group's proposal (v8, kept outside this repository). References like "propos
 * **H1:** for at least two arms, the prediction from the mechanism's primary source fails inside this co-tuned
   stack.
 * **H2:** leave-one-out and add-one-in disagree by more than seed variance for at least one arm.
+
+## Results in one page
+
+All numbers are in [`reports/table.md`](reports/table.md); every row can be rebuilt from [`saved_results/`](saved_results). Δ steps = steps to
+validation loss 3.28 (negative = fewer steps); intervals are 95% Welch t intervals; no p-values.
+
+* **Most of the gain is sample efficiency, not speed.** Throughput barely improves (only dropping an attention layer, A6b, +5%) and gets
+  worse with long context and block windows (−11% to −15%). The mechanisms registered as throughput gains (A1a FlexAttention, A5, A5b) were not.
+* **Resolved sample-efficiency effects (Δ steps, add-one-in):** A1b long context + document masking −489 ± 116, A4 U-net value embeddings −221 ± 145,
+  A5 −565 ± 129, A4b −473 ± 150, A6 −219 ± 116; removing A2 costs +96 ± 41, A6 +60 ± 41, A7 +79 ± 32 (leave-one-out). A5b (record #16 MFU tweaks) is null in
+  both directions (+17 ± 240, −5 ± 94). The positive control passes: AdamW needs at least 1.55× the steps of Muon.
+* **H1 (the source's prediction fails for ≥ 2 arms): supported** (A3 value embeddings, A7 softcap, A1a). **H2 (leave-one-out and add-one-in
+  disagree beyond seed noise for ≥ 1 arm): supported only with a caveat**: A4b and A6 disagree, but their add-one-in configurations are bundles of
+  prerequisites, so the gap mixes interaction with the bundle; the clean pairs (A2, A5b, A6b, A7) show no resolved disagreement.
+* **RQ3:** the effects of the value-embedding arms are flat across loss thresholds 3.40/3.35/3.30 (RQ3a, a screening instrument); at 0.5×/0.75×
+  of the budget (RQ3b, add-one-in only, one seed) the advantage of A3 and A6 shrinks monotonically but stays, within single-run noise (≈ 0.006 loss).
+* **Two GPU models.** The H100 sweep left gaps; the lab A100 filled them under a protocol and pass rule written before its first run
+  ([`lab_a100/PROTOCOL.md`](lab_a100/PROTOCOL.md)). The transfer check passed (baseline offset +0.0002 ± 0.0093 inside ±0.010; the bridge arm gives
+  −218 steps on the A100 against −219 on the H100). Every Δ uses a baseline from its own host and the two datasets are never pooled; throughput is the
+  H100's only. This deviates from the single-GPU-model rule of the proposal and is a stated limitation.
+* **Limits to keep in mind:** 1–3 seeds per configuration (arms with one seed have no interval), several add-one-in arms are bundles
+  ([`DEVIATIONS.md`](DEVIATIONS.md) 3.1), 300-step single-run throughput, one slice of the speedrun history.
 
 ---
 
@@ -152,7 +169,7 @@ Each arm is compared against a fixed point:
 `experiments/runs/<exp_id>/config.json` per configuration and a summary in `matrix.json`. Seed counts are config
 fields: 3 by default, 5 for RQ2 arms.
 
-Today the matrix has **25 configurations and 113 runs**. Leave-one-out is withheld for A1a, A1b, A3, A4 and A5,
+The matrix has **43 configurations**: the 21 of the sweep (D2, 63 planned runs) and the 22 budget-scaled RQ3b ones (`rq3b_s0.5_*`, `rq3b_s0.75_*`; tag `a100-v1`), of which 28 + 24 runs were executed (`DEVIATIONS.md`). Leave-one-out is withheld for A1a, A1b, A3, A4 and A5,
 because switches that stay on in r18 depend on them. Choosing what "remove" means for those arms is decision D1.
 
 ### 5. Running: `launch/`
@@ -166,7 +183,7 @@ because switches that stay on in r18 depend on them. Choosing what "remove" mean
   replicated there.
 * **`throughput.py`** measures tokens/s, kept separate from the learning-curve runs. It refuses to start unless
   you confirm the node is otherwise idle. The study measures throughput on one host only (`study.yaml:
-  throughput.host`, the lab A100).
+  throughput.host`, the rented H100; the lab A100 was used for the complement of `DEVIATIONS.md` 7).
 * **Environment:** `Dockerfile` is upstream #18's (CUDA 12.6.2, Python 3.12.7) with one deviation: **stable
   `torch==2.6.0+cu126`** instead of the nightly `2.6.0.dev20241231+cu126`, which PyTorch has pruned from its index
   (decided 2026-10-18; what changes is in `CHANGES/infra.md`, "compat: torch pin"). `env.lock` separates pinned
@@ -200,20 +217,47 @@ mechanically against the proposal: all 10 rows match. The softcap row is copied 
 
 ---
 
-## Getting started
+## Reproducing the results
+
+**Requirements.** Python 3.12 (the version used), no GPU, no network after the clone and `pip install`. Setup and exact commands:
 
 ```bash
-sh explore_tools/fetch_sources.sh      # .venv + upstream clone + exported trees + gists + torch sources (idempotent)
-source .venv/bin/activate              # numpy, pyyaml, pytest only; no torch is needed for anything below
+git clone git@github.com:jorgesilva2407/nanogpt-speedrun-decomposition.git && cd nanogpt-speedrun-decomposition
+git checkout submission                                    # the state of the code at submission
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-tools.txt                      # numpy, pyyaml, pytest: pinned; no torch needed
 
-python -m pytest tools/tests experiments/tests launch/tests analysis/tests        # 33 tests
-for n in 11 12 13 14 15 16 17 18; do python -I tools/gate.py $n; done             # static gates -> gates/rNN.txt
-python -I experiments/matrix.py                                                    # regenerate the matrix
-python -I tools/changes_report.py                                                  # regenerate reports/
+python -I analysis/tables.py --results saved_results/h100 --results-a100 saved_results/a100 --out reports/table.md
+git diff --stat reports/table.md                           # empty: the committed table is exactly this output
+python -m pytest tools/tests experiments/tests launch/tests analysis/tests     # tests, incl. saved_results -> table
 ```
 
-`fetch_sources.sh` only downloads what is missing. At the end it checks that the snapshots it re-exported match
-the committed ones.
+`saved_results/` holds the 73 completed runs (H100: 28 learning + 21 throughput; A100: 24 learning) in the layout `analysis/load.py` reads:
+`<configuration>/seed<k>/{meta.json, metrics.jsonl, timing.jsonl, wall_seconds, DONE}`. It is a lossless trim of the full datasets (training-loss rows
+are dropped; validation losses and per-step GPU times are copied unchanged; see [`saved_results/README.md`](saved_results/README.md)). The full
+datasets are on Hugging Face (`speedrun-decomp/speedrun-results`, `speedrun-decomp/speedrun-results-a100`; private, access on request) and
+`tools/export_saved_results.py` rebuilds `saved_results/` from them.
+
+**Re-running the training** needs a GPU (H100 SXM 80GB for the main sweep; any 80 GB card for the A100 protocol), Docker and the data:
+
+```bash
+docker pull ghcr.io/jorgesilva2407/modded-nanogpt-flagged:9ec04dbd69e72372fba7fbd797030e46363b8662   # the image behind every result
+# or build it: docker build -f launch/Dockerfile -t modded-nanogpt-flagged:$(git rev-parse --short HEAD) .   (CI: .github/workflows/image.yml)
+python data/cached_fineweb10B.py 18                         # FineWeb 10B tokens, 18 shards (~4 GB), into data/fineweb10B/
+python launch/run_one.py --exp experiments/runs/fp_r11 --seed 0 --host my-gpu --nproc 1     # one run, one seed (~1 h on an H100)
+```
+
+The sweeps themselves are the two drivers described in **How the study was run** below. Credentials are never stored in the repository: they are
+read from the environment (`GH_TOKEN`, `HF_TOKEN`, `RESULTS_REPO`; see the header of `launch/cloud_worker.sh`).
+
+## Static checks (no GPU)
+
+```bash
+sh explore_tools/fetch_sources.sh      # upstream clone, exported record trees, gists, torch sources (idempotent; ~0.5 GB, not committed)
+python -I tools/gate.py 11             # static gate of record 11 ... 18 -> gates/rNN.txt
+python -I experiments/matrix.py        # regenerate the experiment matrix
+python -I tools/changes_report.py      # regenerate reports/changes.*
+```
 
 ## Inspecting what each record changed
 
@@ -229,64 +273,40 @@ the committed ones.
 | static gates for record N | `python -I tools/gate.py NN` → `gates/rNN.txt` |
 | does every torch API the trainer calls exist in the pinned torch? | `python -I tools/torch_api_check.py ext/torch_src/v2.6.0` → `gates/torch_api.txt` |
 
-## How to run the study (documented, not executed)
+## How the study was run
 
-**0. Environment.** Build the pinned image and download the data:
+Everything below was executed; the order, the host rules and every deviation from the plan are in [`DEVIATIONS.md`](DEVIATIONS.md).
+
+**Image and data.** Image `ghcr.io/jorgesilva2407/modded-nanogpt-flagged:9ec04dbd69e72372fba7fbd797030e46363b8662` (pinned dependencies: `requirements.txt`,
+full freeze `launch/requirements-frozen.txt`); data `python data/cached_fineweb10B.py 18`. Validation: every 125 steps and every 25 in the final third, on
+the full validation set (`measurement:` in each config; D3).
+
+**1. The experiment matrix** (generated, never written by hand):
 ```bash
-docker build -f launch/Dockerfile -t modded-nanogpt-flagged:$(git rev-parse --short HEAD) .
-export DOCKER_TAG=modded-nanogpt-flagged:$(git rev-parse --short HEAD)
-python data/cached_fineweb10B.py 18
-```
-Run the feasibility spike first ([`SPIKE.md`](SPIKE.md), S1–S4):
-
-* S1: VRAM;
-* S2: seeding, and measuring σ;
-* S3: GPU-count invariance;
-* S4: whether the historical code runs on the pinned stack.
-
-The measured σ decides the seed counts in `experiments/study.yaml`.
-
-**1. Generate the matrix:**
-```bash
-python -I experiments/matrix.py            # writes experiments/runs/<exp_id>/config.json and experiments/matrix.json
-python -I experiments/matrix.py --dry-run --assume-resolved all   # preview RQ3b counts
-```
-RQ3b configurations appear once `study.yaml: rq3b.resolved_arms` lists the arms resolved in RQ1.
-
-**2. One run.** It writes `results/<exp_id>/seed<k>/{metrics.jsonl, timing.jsonl, meta.json, DONE}`:
-```bash
-python launch/run_one.py --exp experiments/runs/loo_A7 --seed 0 --host lab-a100 --nproc 1
-python launch/run_one.py --exp experiments/runs/loo_A7 --seed 0 --host lab-a100 --nproc 1 --dry-run   # print only
+python -I experiments/matrix.py            # experiments/runs/<exp_id>/config.json and experiments/matrix.json
 ```
 
-**3. A sweep on one host.** The fixed points an arm needs are added automatically. `experiments/hosts.json` records
-which host owns which arm, and a second host is refused.
+**2. One run** writes `results/<exp_id>/seed<k>/{metrics.jsonl, timing.jsonl, meta.json, DONE}` (atomic: no resume; a run without `DONE` restarts at step 0):
 ```bash
-launch/run_sweep.sh --host lab-a100 --nproc 1 --arm A7 --arm A3
-launch/run_sweep.sh --host rented-h100 --nproc 4 --arm A6b      # overflow at arm granularity; baselines replicated
+python launch/run_one.py --exp experiments/runs/loo_A7 --seed 0 --host vast-h100 --nproc 1
+python launch/run_one.py --exp experiments/runs/loo_A7 --seed 0 --host vast-h100 --nproc 1 --dry-run   # print only
 ```
 
-**4. Throughput.** On the host named in `study.yaml: throughput.host` (the lab A100), on an otherwise-idle node.
-The script asks for confirmation and records the answer:
+**3. The H100 sweep** (tag `study-freeze`): one rented on-demand H100 SXM 80GB (Vast.ai) running `launch/cloud_worker.sh` per tier
+(`fixed_points`, then `p1`, then `throughput`), with the environment variables listed in its header, inside the image above; every finished run is
+uploaded to the results dataset. The job lists and the tier script actually used are in `saved_results/h100/_logs/`.
 ```bash
-python launch/throughput.py --exp experiments/runs/fp_r18 --host lab-a100 --nproc 1        # 300 steps by default
-```
-The jobs to run are listed in `experiments/matrix.json → throughput_jobs`. The cross-hardware check (`fp_r18`
-seed 0 on lab-a100 and on rented-h100) is a named experiment, analysed separately.
-
-**5. Tables:**
-```bash
-python -I analysis/tables.py               # -> reports/table.md (H100 results in results/)
-# the finished study: both result datasets from Hugging Face, kept in separate directories
-hf download speedrun-decomp/speedrun-results      --repo-type dataset --local-dir results-h100 --exclude "*.pt"
-hf download speedrun-decomp/speedrun-results-a100 --repo-type dataset --local-dir results-a100 --exclude "*.pt"
-python -I analysis/tables.py --results results-h100 --results-a100 results-a100 --out reports/table.md
-python -I analysis/mde.py                  # MDEs (set sigma to the S2 measurement)
+TIER=fixed_points bash launch/cloud_worker.sh     # needs GH_TOKEN HF_TOKEN RESULTS_REPO STUDY_TAG DOCKER_TAG HOST_LABEL; DRY_RUN=1 to check first
+python -I launch/make_jobs.py --tier p1 --status --repo <hf-user>/speedrun-results      # which jobs are finished
 ```
 
-**Validation cadence** is set in the `measurement:` section of each config. The v8 default is every 125 steps, then
-every 25 in the final third, on the full validation set. `study.yaml: validation.mode: subset20` switches to a fixed
-20% subset every 5 steps in the final third. That mode is supported but not adopted (D3).
+**4. Throughput** (300 steps per configuration, otherwise-idle node, one run each, seed 0): tier `throughput` of the same worker
+(`launch/throughput.py`), host `vast-h100`. The jobs are `experiments/matrix.json → throughput_jobs`.
+
+**5. The lab-A100 complement** (tag `a100-v1`): one `docker run` that executes all five phases of [`lab_a100/PROTOCOL.md`](lab_a100/PROTOCOL.md) with
+`lab_a100/run.sh all` (anchor, gaps, rq2, seeds2, rq3b), into the separate dataset `speedrun-results-a100`; the exact command is in the protocol, section 5.
+
+**6. Tables:** the commands of **Reproducing the results**. `python -I analysis/mde.py` prints the detectable effects.
 
 ## Findings so far (static; details in `EXPLORATION.md` and `CHANGES/`)
 
@@ -353,8 +373,23 @@ These paths are **not versioned** and are re-created by `explore_tools/fetch_sou
 
 `results/` and `experiments/hosts.json` are run outputs and are also ignored.
 
-## Provenance
+## Provenance: what was reused and what was developed
 
-The record snapshots, `train_flagged.py`, `launch/Dockerfile` and `data/cached_fineweb10B.py` derive from
-[KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt) (MIT License, © 2024 Keller Jordan)
-and its contributors.
+**Reused (upstream, [KellerJordan/modded-nanogpt](https://github.com/KellerJordan/modded-nanogpt), MIT License, © 2024 Keller Jordan and contributors):**
+the eight record scripts (`records/rNN/log_source/`, byte-exact from the record logs), `data/cached_fineweb10B.py` (unchanged), the CUDA/Python base of
+`launch/Dockerfile`, and the training recipe itself, which `train_flagged.py` starts from (record #11). PyTorch 2.6.0 is used with two upstream
+backports (`launch/patch_torch.py`: FlexAttention `d2ec7f0756`, cuDNN SDPA `ec93aa7f84`). Data: FineWeb 10B tokens as tokenised by upstream.
+
+**Developed here:** the single flagged trainer (one switch per mechanism, prerequisites enforced, seeding and a world-size-independent batch convention),
+the ledger that classifies every hunk of the eight records, the static gates, the experiment matrix generator and its 43 configurations, the launch and
+run-logging tooling, the lab-A100 protocol and driver, the analysis (steps-to-threshold with a persistence fallback, the additive wall-clock split, the
+transfer check, the tables), the tests, and the pre-registered predictions (`prereg/predictions.yaml`, tag `prereg-v1`). All experiments, results and
+conclusions are the group's.
+
+## AI assistance
+
+> Claude Code (Anthropic) was used as an assistant during the project: to help write and
+> revise parts of the code in this repository (including pieces of the trainer, `tools/`, `experiments/`, `launch/`, `lab_a100/`, `analysis/` and the
+> tests), and to help draft the documentation (README, `DEVIATIONS.md`, `CHANGES/`), which the group reviewed and edited. The
+> study design (research questions, arms, pre-registered predictions, the decisions D1–D13, the budget and spending choices), the running of the
+> experiments and the interpretation of the results are the group's own.

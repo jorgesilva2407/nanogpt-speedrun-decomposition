@@ -70,6 +70,16 @@ One `docker run` with the image's own empty entrypoint overridden by `bash`; the
 into the image and nothing of the H100 start-up is reused. Finished runs are uploaded one by one; stopping the container loses only the
 run in progress (it restarts from step 0, there is no resume), and restarting skips everything already finished.
 
+The command (credentials come from the environment, never from the repository):
+
+```bash
+IMG=ghcr.io/jorgesilva2407/modded-nanogpt-flagged:9ec04dbd69e72372fba7fbd797030e46363b8662
+COMMON="--shm-size=16g --gpus device=<GPU UUID> -v $HOME/a100-lab:/workspace -e GH_TOKEN -e HF_TOKEN \
+  -e RESULTS_REPO=speedrun-decomp/speedrun-results-a100 -e STUDY_TAG=a100-v1 -e DOCKER_TAG=$IMG -e HOST_LABEL=lab-a100 --entrypoint bash"
+CMD='curl -fsSL -H "Authorization: token $GH_TOKEN" -o /tmp/run.sh https://raw.githubusercontent.com/jorgesilva2407/nanogpt-speedrun-decomposition/a100-v1/lab_a100/run.sh && bash /tmp/run.sh all'
+docker run --name <name> $COMMON $IMG -c "$CMD"        # restart after a stop: docker start -a <name>
+```
+
 ## 6. Disclaimer for the report and the presentation
 
 > Most experiments ran on rented NVIDIA H100 SXM 80GB GPUs (one host class, one image). The configurations that the budget did not

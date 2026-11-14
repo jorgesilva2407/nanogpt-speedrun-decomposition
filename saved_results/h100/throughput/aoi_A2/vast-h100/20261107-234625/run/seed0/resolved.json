@@ -1,0 +1,105 @@
+{
+ "flags": {
+  "block_window": false,
+  "blockmask_manual": false,
+  "blockmask_separate": false,
+  "code_opts_15": false,
+  "code_opts_16": false,
+  "code_opts_17": false,
+  "code_opts_18": false,
+  "doc_masking": false,
+  "drop_attn_layer": false,
+  "flex_kernel": true,
+  "fp32_small_params": false,
+  "long_context": false,
+  "muon_ema_momentum": false,
+  "optimizer": "muon",
+  "rope_half_truncate": false,
+  "rotary_variant": "v11",
+  "value_embeds": false,
+  "ve_lambdas2": false,
+  "ve_sparsify": false,
+  "ve_split": false,
+  "ve_unet": false,
+  "window_warmup": true
+ },
+ "hparams": {
+  "adam_betas": [
+   0.9,
+   0.95
+  ],
+  "adamw_betas": [
+   0.9,
+   0.95
+  ],
+  "adamw_lr": 0.0018,
+  "adamw_weight_decay": 0,
+  "attn_window": 1024,
+  "cooldown_frac": 0.4,
+  "dropped_attn_layer": 7,
+  "embed_vocab_size": 50304,
+  "global_batch_tokens": 524288,
+  "input_bin": "data/fineweb10B/fineweb_train_*.bin",
+  "input_val_bin": "data/fineweb10B/fineweb_val_*.bin",
+  "loader_replay_first_round": true,
+  "loader_shard_rule": "gt_plus1",
+  "logit_softcap": 30,
+  "lr_embed": 0.6,
+  "lr_head": 0.008,
+  "lr_muon": 0.04,
+  "lr_scalar": 0.04,
+  "lr_schedule_form": "iters",
+  "micro_batch_tokens": 65536,
+  "muon_momentum": 0.95,
+  "muon_momentum_warmup_end": 0.95,
+  "muon_momentum_warmup_start": 0.85,
+  "muon_momentum_warmup_steps": 500,
+  "n_embd": 768,
+  "n_head": 6,
+  "n_layer": 12,
+  "num_iterations": 3000,
+  "save_every": 0,
+  "sequence_length": 1024,
+  "val_loss_every": 125,
+  "val_tokens": 10485760,
+  "ve_sparse_tables": 3,
+  "vocab_size": 50304,
+  "warmdown_iters": 900,
+  "warmup_iters": 0,
+  "weight_decay": 0,
+  "window_block_formula": "r16",
+  "window_warmup_end": 1792,
+  "window_warmup_quantum": 64,
+  "window_warmup_start": 64
+ },
+ "measurement": {
+  "timing_warmup_steps": 10,
+  "val_every_final_third": 25,
+  "val_final_third_fraction": 1.0
+ },
+ "preset": "r11",
+ "run": {
+  "allow_dirty": false,
+  "config_hash": "28580a698d9ff14e740c875803d2ee41f56758a599ba1981b81024e091f68e7e",
+  "docker_tag": "ghcr.io/jorgesilva2407/modded-nanogpt-flagged:9ec04dbd69e72372fba7fbd797030e46363b8662",
+  "exp_id": "aoi_A2",
+  "git_dirty": false,
+  "git_sha": "9ec04dbd69e72372fba7fbd797030e46363b8662",
+  "host_label": "vast-h100",
+  "provenance": {
+   "arm": "A2",
+   "base_preset": "r11",
+   "cumulative": true,
+   "hparams_from": "r11",
+   "prerequisites_added": [
+    {
+     "arm": "A1a",
+     "flag": "flex_kernel",
+     "required_by": "window_warmup"
+    }
+   ],
+   "switched_to": "r18 values"
+  },
+  "result_name": "throughput/aoi_A2/vast-h100/20261107-234625/run"
+ }
+}

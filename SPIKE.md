@@ -1,5 +1,7 @@
 # Feasibility spike (proposal §3 step 0) — commands, outputs, pass/fail criteria
 
+> **Historical note (2026-11-14).** Written before any run and never executed as a separate spike: the feasibility spike was dropped on 2026-11-04 (README, `OPEN_DECISIONS.md`) and the fixed-point runs of the sweep served as the first runtime validation (`DEVIATIONS.md`). Kept as the original plan.
+
 Nothing below has been run. Run in order on the lab A100, inside the pinned image, from a clean checkout:
 
 ```bash
